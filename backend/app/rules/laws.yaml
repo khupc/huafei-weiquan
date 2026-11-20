@@ -1,0 +1,62 @@
+# 法条库：模型只能从这里挑条款（按 id 引用），页面上显示的名称和原文一律从这里取，不用模型复述的版本。
+# legal_review: pending —— 条目照搬 v1.2 文档 S1-S7 引用过的法条“方向”，未经法务审校。
+# text 为空 = 原文待法务补充；reviewed: false = 未审核，页面标“待审”。
+# used_for 只描述第一版把它用在了哪类问题，不是法律解释。
+legal_review: pending
+
+laws:
+  telecom_reg_40:
+    name: 《电信条例》第40条
+    used_for: 乱扣费、通信质量与网络故障
+    text: ""
+    reviewed: false
+  consumer_8:
+    name: 《消费者权益保护法》第8条
+    used_for: 隐形合约与违约金（知情权）
+    text: ""
+    reviewed: false
+  consumer_9:
+    name: 《消费者权益保护法》第9条
+    used_for: 乱扣费、宽带拆机与押金不退（自主选择权）
+    text: ""
+    reviewed: false
+  consumer_26:
+    name: 《消费者权益保护法》第26条
+    used_for: 乱扣费、隐形合约与违约金（格式条款）
+    text: ""
+    reviewed: false
+  consumer_55:
+    name: 《消费者权益保护法》第55条
+    used_for: 恶意偷开业务时作为谈判筹码
+    text: ""
+    reviewed: false
+  civil_1033:
+    name: 《民法典》第1033条
+    used_for: 高频营销骚扰
+    text: ""
+    reviewed: false
+  civil_deposit:
+    name: 《民法典》押金返还相关规定
+    used_for: 宽带拆机与押金不退
+    text: ""
+    reviewed: false
+  miit_tariff:
+    name: 工信部资费管理相关规范
+    used_for: 改套餐受阻
+    text: ""
+    reviewed: false
+  miit_service_std:
+    name: 工信部《电信服务规范》
+    used_for: 无故停机与靓号条款、通信质量与网络故障
+    text: ""
+    reviewed: false
+  miit_mnp:
+    name: 工信部携号转网服务管理规定
+    used_for: 隐形合约与违约金、携号转网受阻
+    text: ""
+    reviewed: false
+  miit_marketing_calls:
+    name: 商业营销呼叫与短信管理相关规定
+    used_for: 高频营销骚扰
+    text: ""
+    reviewed: false

@@ -26,3 +26,7 @@ def categories() -> dict:
 
 def templates() -> dict:
     return _load("templates")
+
+
+def laws() -> dict:
+    return _load("laws")["laws"]

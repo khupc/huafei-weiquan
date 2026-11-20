@@ -56,7 +56,30 @@ def restore_and_truncate(text: str, slots: dict, max_chars: int) -> str:
     return text + suffix
 
 
-def apply(text: str, slots: dict) -> str:
-    max_chars = rules.templates()["node3"]["body_max_chars"]
+def apply(text: str, slots: dict, reserve: int = 0) -> str:
+    """`reserve` = room kept for the library law line the renderer adds afterwards."""
+    max_chars = rules.templates()["node3"]["body_max_chars"] - reserve
     text = strip_emotion(strip_fabricated_law(text))
     return restore_and_truncate(text, slots, max_chars)
+
+
+def check_analysis(analysis, laws: dict) -> dict:
+    """Model advice -> what the page may show: law ids only from the library, no law text or
+    compensation multiples in free text, short reasons, at most 4 demands."""
+    limit = rules.templates()["node1"]["advice"]["reason_max_chars"]
+
+    def clean(t: str) -> str:
+        return strip_emotion(strip_fabricated_law(t or "")).strip()
+
+    law_ids = list(dict.fromkeys(i for i in analysis.law_ids if i in laws))
+    demands = []
+    for d in analysis.demands:
+        text = clean(d.text)
+        if not text:
+            continue
+        reason = clean(d.reason)
+        demands.append({"text": text, "feasibility": d.feasibility, "from_user": d.from_user,
+                        "law_ids": [i for i in dict.fromkeys(d.law_ids) if i in laws],
+                        "reason": reason[:limit] + ("…" if len(reason) > limit else "")})
+    demands.sort(key=lambda d: not d["from_user"])  # the user's own expectation first
+    return {"law_ids": law_ids, "demands": demands[:4]}

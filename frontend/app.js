@@ -33,7 +33,7 @@ function copyText(text) {
 createApp({
   data: () => ({
     view: null, chat: [], draft: '', quickReplies: null, busy: false, error: '',
-    editing: false, facts: {}, showCallForm: false, call: {}, body: '',
+    editing: false, facts: {}, choice: { selected: [], custom: '' }, showCallForm: false, call: {}, body: '',
     showSurvey: false, surveyDone: false, survey: { result: null, blocker_tag: null },
     RESULTS: { FULL_RESOLVED: '全额解决', PARTIAL_RESOLVED: '部分解决', ABANDONED: '放弃' },
     BLOCKERS: { UNCLEAR_GUIDE: '听不懂提示', AGENT_OFF_SCRIPT: '客服不按套路走', FORM_HARD: '申诉网页不会填', TOO_TIRED: '懒得弄了' },
@@ -49,6 +49,10 @@ createApp({
       this.view = v;
       this.editing = false;
       if (v.state === 'NODE_1_CONFIRM_CARD') this.facts = { ...v.card };
+      if (v.state === 'NODE_1_ADVICE') {
+        const mine = v.card.demands.findIndex(d => d.from_user);
+        this.choice = { selected: mine >= 0 ? [mine] : [], custom: '' };
+      }
       if (v.state === 'NODE_3_APPEAL') this.body = v.card.modules.find(m => m.key === 'complaint_body').text;
       window.scrollTo(0, 0);
     },
@@ -91,10 +95,18 @@ createApp({
     saveFacts() {
       const f = this.facts;
       const changes = { summary: f.summary, amount: f.amount === '' ? null : f.amount, duration_or_time: f.duration_or_time,
-        prior_contact_status: f.prior_contact_status, ticket_id: f.ticket_id, agent_id: f.agent_id, call_date: f.call_date };
+        city: f.city, expectation: f.expectation, prior_contact_status: f.prior_contact_status, ticket_id: f.ticket_id, agent_id: f.agent_id, call_date: f.call_date };
       return this.run(async () => this.apply(await api('PUT', this.path('/facts'), changes)));
     },
     backToConfirm() { return this.run(async () => this.apply(await api('PUT', this.path('/facts'), {}))); },
+    confirmCard() {
+      // the city is a free-text field: save it together with the confirm, not on blur
+      return this.run(async () => {
+        if ((this.facts.city || '') !== (this.card.city || '')) await api('PUT', this.path('/facts'), { city: this.facts.city });
+        this.apply(await api('POST', this.path('/confirm')));
+      });
+    },
+    chooseDemands() { return this.act('demands', this.choice); },
     submitCall() {
       this.showCallForm = false;
       return this.act('call-result', { resolved: false, ...this.call });

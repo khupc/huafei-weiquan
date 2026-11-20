@@ -11,6 +11,8 @@ node1:
       hint: 比如：从今年 8 月开始，每个月扣 30 元
     - title: 找过客服没有
       hint: 比如：打过客服没解决 / 还没联系过 / 已有工单号
+    - title: 你希望怎么解决
+      hint: 比如：全额退钱 / 把号码恢复 / 换成低价套餐，也可以说最低能接受什么
   quick_replies:
     none: 还没打过客服电话
     verbal_only: 打过但没解决/无工单
@@ -20,6 +22,12 @@ node1:
     core_issue: 能说说具体出了什么事吗？比如哪项费用、什么时候开始、多少钱。
     prior_contact: 这件事你之前打过客服电话吗？
     both: 能说说具体出了什么事吗？之前打过客服电话没有？
+    expectation: 你希望这件事怎么解决？最低能接受什么结果？
+  advice:
+    feasibility_levels: [高, 中, 低]
+    reason_max_chars: 40
+    disclaimer: 以上依据和建议由 AI 根据法条库整理，不构成法律意见；诉求由你自己决定。
+    no_law: 法条库里暂时没找到明确适用的条款，你仍然可以按下面的步骤投诉和申诉。
 
 node2:
   principles:
@@ -33,7 +41,7 @@ node2:
     - label: 客观事实
       text: "{fact_line}"
     - label: 注入法条
-      text: 根据{law_refs}的相关规定，运营商应当保障用户的知情权和选择权。
+      text: 根据{law_refs}的相关规定，运营商应当依法处理我的问题。
     - label: 明确诉求
       text: 我的诉求是：{demand}。
     - label: 立场施压
@@ -45,14 +53,17 @@ node2:
       text: 请确认你的工号、本次工单编号，以及最晚明天（T+1）给我回复；逾期未回复我将直接申诉。
 
 node3:
+  # 照工信部 12300 电信用户申诉表单（微信小程序“工信部12300”，网页 yhssglxtwx.miit.gov.cn/wechat/appeal）
   prior_record: "本人已于{call_date}拨打{hotline}向企业投诉，客服工号{agent_id}，工单编号{ticket_id}，问题至今未解决。"
   prior_record_no_ticket: "本人已拨打{hotline}向企业投诉，问题至今未解决。"
   nav_steps:
-    - 打开微信，搜索公众号“工信部投诉”
-    - 点击底部“我要申诉”，选择“电信用户申诉”
-    - 按页面顺序依次粘贴上面 4 项内容
-    - 填写本人实名手机号和验证码，提交
-  body_max_chars: 280
+    - 打开微信，搜索小程序“工信部12300”，进入“提交申诉”
+    - 按下面“表单怎么填”逐项选择和填写
+    - 姓名、证件号码、通讯地址、联系电话填你本人的真实信息
+    - 把“申诉内容”整段粘贴进去，附件上传通话记录、扣费短信或账单截图（单个不超过 5M）
+    - 输入图形验证码和短信验证码，点提交
+  body_min_chars: 25
+  body_max_chars: 500
 
 node4:
   general_red_lines:

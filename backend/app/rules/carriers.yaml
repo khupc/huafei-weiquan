@@ -1,5 +1,5 @@
 # Spec 4.3 运营商规则表。内容照搬 v1.2 文档，未经核实。
-# legal_review: pending —— 热线、转人工口令、企业全称模板上线前需逐条核实（法务/运营）。
+# legal_review: pending —— 热线、转人工口令上线前需逐条核实（法务/运营）。
 legal_review: pending
 
 carriers:
@@ -7,23 +7,19 @@ carriers:
     name: 中国移动
     hotline: "10086"
     transfer_tip: 拨通后连喊两次“投诉”或“人工客服”
-    company_template: "中国移动通信集团{province}有限公司"
   CUCC:
     name: 中国联通
     hotline: "10010"
     transfer_tip: 拨通后喊“投诉”，按提示音转人工
-    company_template: "中国联合网络通信有限公司{province}分公司"
   CTCC:
     name: 中国电信
     hotline: "10000"
     transfer_tip: 拨通后喊“人工服务”或按 0 号键
-    company_template: "中国电信股份有限公司{province}分公司"
   CBN:
     name: 中国广电
     hotline: "10099"
     transfer_tip: 拨通后按 0 号键直接转人工
-    company_template: "中国广电{province}网络股份有限公司"
 
-# 省份简称，用于拼装企业全称（模板中的 {province}）
+# 省份简称，用于确认卡和 12300 申诉表单的“所属地区”
 provinces: [北京, 天津, 河北, 山西, 内蒙古, 辽宁, 吉林, 黑龙江, 上海, 江苏, 浙江, 安徽, 福建, 江西, 山东,
   河南, 湖北, 湖南, 广东, 广西, 海南, 重庆, 四川, 贵州, 云南, 西藏, 陕西, 甘肃, 青海, 宁夏, 新疆]

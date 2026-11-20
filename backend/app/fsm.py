@@ -6,12 +6,13 @@ from difflib import SequenceMatcher
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import render, rules
+from . import guardrails, render, rules
 from .llm import LLMProvider
 from .models import Case, CaseClosingSurvey, CaseEventLog, SftFeedbackSample
 
 INTAKE = "NODE_1_INTAKE"
 CONFIRM = "NODE_1_CONFIRM_CARD"
+ADVICE = "NODE_1_ADVICE"  # applicable laws + demand options; the user picks the demands
 CALL = "NODE_2_CALL"
 APPEAL = "NODE_3_APPEAL"
 CALLBACK = "NODE_4_CALLBACK"
@@ -20,9 +21,9 @@ CLOSED = "CLOSED"
 
 MAX_ASK_TURNS = 3
 DIFF_SAMPLE_THRESHOLD = 0.90
-EDITABLE_FACTS = {"carrier", "province", "summary", "amount", "duration_or_time",
+EDITABLE_FACTS = {"carrier", "province", "city", "summary", "expectation", "amount", "duration_or_time",
                   "prior_contact_status", "agent_id", "ticket_id", "call_date"}
-EDITABLE_STATES = {CONFIRM, CALL, APPEAL}
+EDITABLE_STATES = {CONFIRM, ADVICE, CALL, APPEAL}
 
 
 class FlowError(Exception):
@@ -47,7 +48,7 @@ def _require(case: Case, *states: str):
 
 def _missing(slots: dict) -> list[str]:
     missing = []
-    if slots.get("primary_category") in (None, "unknown"):
+    if not slots.get("issue"):
         missing.append("core_issue")
     if not slots.get("prior_contact_status"):
         missing.append("prior_contact")
@@ -70,28 +71,39 @@ def intake_message(db: Session, case: Case, llm: LLMProvider, text: str, quick_r
     if quick_reply:
         slots["prior_contact_status"] = quick_reply
     ext = None
+    answering = case.evidence.get("pending_ask")
     if text.strip():
-        texts.append(text.strip())
+        if answering != "expectation":  # the wish is not a fact; keep it out of the summary
+            texts.append(text.strip())
         ext = llm.extract(text, slots)
+        if answering == "expectation" and not ext.expectation:
+            ext.expectation = text.strip()  # a bare answer like "全额退钱" is the expectation itself
         for key, value in ext.model_dump(exclude={"missing_critical_slots", "next_action", "is_emotion_only"}).items():
             if key == "secondary_categories":
                 slots[key] = sorted(set(slots.get(key, [])) | set(value))
-            elif value not in (None, "unknown"):
-                slots[key] = value
+            elif value not in (None, "unknown") and (answering != "expectation" or key == "expectation"
+                                                     or not slots.get(key)):
+                slots[key] = value  # an answer to "how should it be solved" only fills gaps
         slots["secondary_categories"] = [c for c in slots["secondary_categories"] if c != slots.get("primary_category")]
-    case.evidence = {**case.evidence, "user_texts": texts}
+    case.evidence = {**case.evidence, "user_texts": texts, "pending_ask": None}
 
     missing = _missing(slots)
-    if missing and case.turn_count < MAX_ASK_TURNS:
+    # The expectation is asked for once, after the critical facts; it never blocks the flow.
+    ask_for = missing or ([] if slots.get("expectation") or case.evidence.get("asked_expectation") else ["expectation"])
+    if ask_for and case.turn_count < MAX_ASK_TURNS:
         case.turn_count += 1
         case.slots = slots
-        question = llm.ask(missing, text)
+        question = llm.ask(ask_for, text)
         if ext and ext.is_emotion_only:
             question = rules.templates()["node1"]["empathy"] + question
-        _log(db, case, "ASK", {"missing": missing, "turn": case.turn_count})
+        evidence = {**case.evidence, "pending_ask": ask_for[0] if ask_for == ["expectation"] else None}
+        if ask_for == ["expectation"]:
+            evidence["asked_expectation"] = True
+        case.evidence = evidence
+        _log(db, case, "ASK", {"missing": ask_for, "turn": case.turn_count})
         return {
             "ask": question,
-            "quick_replies": rules.templates()["node1"]["quick_replies"] if "prior_contact" in missing else None,
+            "quick_replies": rules.templates()["node1"]["quick_replies"] if "prior_contact" in ask_for else None,
         }
 
     if missing:
@@ -110,12 +122,15 @@ def edit_facts(db: Session, case: Case, llm: LLMProvider, changes: dict):
     slots = {**case.slots, **changes}
     if "summary" in changes and changes["summary"] != case.slots.get("summary"):
         slots["summary"] = llm.summarize([changes["summary"]], slots)
-        ext = llm.extract(changes["summary"], slots)  # silent re-route, never shown to the user
+        ext = llm.extract(changes["summary"], slots)
+        if ext.issue:
+            slots["issue"] = ext.issue
         if ext.primary_category != "unknown":
             slots["primary_category"] = ext.primary_category
             slots["secondary_categories"] = ext.secondary_categories
     case.slots = slots
-    case.generated_texts = {k: v for k, v in case.generated_texts.items() if k != "complaint_body"}
+    # any fact change invalidates the advice and the generated complaint
+    case.generated_texts = {k: v for k, v in case.generated_texts.items() if k not in ("complaint_body", "analysis")}
     _log(db, case, "FACTS_EDITED", {"fields": sorted(changes)})
     if case.current_state != CONFIRM:
         _move(db, case, CONFIRM, "BACK_TO_CONFIRM")
@@ -127,10 +142,30 @@ def confirm(db: Session, case: Case, llm: LLMProvider):
         raise FlowError("请先选择你的运营商（移动 / 联通 / 电信 / 广电）")
     if not case.slots.get("province"):
         raise FlowError("请先选择号码归属的省份")
+    if not (case.slots.get("city") or "").strip():
+        raise FlowError("请填写号码归属的城市（地级市，比如“深圳”）")
+    analysis = guardrails.check_analysis(llm.analyze(case.slots, rules.laws()), rules.laws())
+    case.generated_texts = {**case.generated_texts, "analysis": analysis}
+    _move(db, case, ADVICE, "CONFIRMED", {"law_ids": analysis["law_ids"], "demands": len(analysis["demands"])})
+
+
+def choose_demands(db: Session, case: Case, llm: LLMProvider, selected: list[int], custom: str | None):
+    """The user, not the system, decides what to ask for."""
+    _require(case, ADVICE)
+    options = case.generated_texts.get("analysis", {}).get("demands", [])
+    picked = [options[i] for i in dict.fromkeys(selected) if 0 <= i < len(options)]
+    chosen = [d["text"] for d in picked]
+    custom = guardrails.strip_fabricated_law((custom or "").strip())
+    if custom:
+        chosen.append(custom)
+    if not chosen:
+        raise FlowError("请至少选一个诉求，或者自己写一个")
+    law_ids = list(dict.fromkeys(i for d in picked for i in d["law_ids"]))
+    case.slots = {**case.slots, "chosen_demands": chosen, "chosen_law_ids": law_ids}
     if case.slots.get("prior_contact_status") == "ticket_logged":
-        _enter_appeal(db, case, llm, "CONFIRMED")
+        _enter_appeal(db, case, llm, "DEMANDS_CHOSEN")
     else:
-        _move(db, case, CALL, "CONFIRMED")
+        _move(db, case, CALL, "DEMANDS_CHOSEN", {"count": len(chosen), "custom": bool(custom)})
 
 
 def _enter_appeal(db: Session, case: Case, llm: LLMProvider, event: str):
@@ -215,6 +250,8 @@ def view(case: Case) -> dict:
     card = None
     if s == CONFIRM:
         card = render.confirm_card(case.slots)
+    elif s == ADVICE:
+        card = render.advice(case.slots, case.generated_texts.get("analysis", {}))
     elif s == CALL:
         card = render.node2(case.slots)
     elif s == APPEAL:
