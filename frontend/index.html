@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>话费维权指引</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div id="app" v-cloak>
+  <header class="top">
+    <span class="brand">AI 维权步骤导航</span>
+    <a v-if="view && view.state !== 'NODE_1_INTAKE'" class="link" @click="restart">重新开始</a>
+  </header>
+
+  <div v-if="error" class="toast" @click="error = ''">{{ error }}</div>
+
+  <main v-if="view">
+    <!-- 节点二/三：顶部常驻“点此修改事实信息” -->
+    <button v-if="['NODE_2_CALL','NODE_3_APPEAL'].includes(view.state)" class="edit-bar" @click="backToConfirm">
+      ✏️ 点此修改事实信息
+    </button>
+
+    <!-- 节点一：自由输入 -->
+    <section v-if="view.state === 'NODE_1_INTAKE'">
+      <h1>遇到话费问题？说说发生了什么</h1>
+      <div class="card scaffold" v-if="!chat.length">
+        <p class="muted">可以按这三点随便说，不用管格式：</p>
+        <div v-for="(s, i) in view.scaffold" :key="i" class="step">
+          <b>{{ i + 1 }}. {{ s.title }}</b><span class="muted">{{ s.hint }}</span>
+        </div>
+      </div>
+      <div class="chat">
+        <div v-for="(m, i) in chat" :key="i" :class="['bubble', m.from]">{{ m.text }}</div>
+      </div>
+      <div v-if="quickReplies" class="quick">
+        <button v-for="(label, key) in quickReplies" :key="key" class="chip" @click="send('', key, label)">{{ label }}</button>
+      </div>
+      <textarea v-model="draft" rows="4" placeholder="比如：联通从今年8月开始每个月扣我30元彩铃费，打过客服没解决"></textarea>
+      <div class="row">
+        <label class="btn ghost">📷 上传账单/短信截图
+          <input type="file" accept="image/*" hidden @change="upload">
+        </label>
+        <button class="btn primary" :disabled="busy || !draft.trim()" @click="send(draft)">发送</button>
+      </div>
+    </section>
+
+    <!-- 必经关口：事实确认卡 -->
+    <section v-if="view.state === 'NODE_1_CONFIRM_CARD'">
+      <h1>请核对一下事实</h1>
+      <div class="card">
+        <div class="field">
+          <label>你的运营商 <i class="req">*</i></label>
+          <div class="seg">
+            <button v-for="(name, code) in card.carrier_options" :key="code"
+                    :class="{on: facts.carrier === code}" @click="pick('carrier', code)">{{ name }}</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>号码归属省份 <i class="req">*</i></label>
+          <select v-model="facts.province" @change="pick('province', facts.province)">
+            <option :value="null" disabled>请选择</option>
+            <option v-for="p in card.province_options" :key="p" :value="p">{{ p }}</option>
+          </select>
+        </div>
+        <template v-if="!editing">
+          <div class="kv"><span>事情经过</span><p>{{ card.summary || '—' }}</p></div>
+          <div class="kv"><span>涉及金额</span><p>{{ card.amount != null ? card.amount + ' 元' : '—' }}</p></div>
+          <div class="kv"><span>发生时间</span><p>{{ card.duration_or_time || '—' }}</p></div>
+          <div class="kv"><span>找过客服没有</span><p>{{ card.prior_contact_options[card.prior_contact_status] || '—' }}</p></div>
+          <div class="kv" v-if="card.ticket_id"><span>工单编号</span><p>{{ card.ticket_id }}</p></div>
+        </template>
+        <template v-else>
+          <div class="field"><label>事情经过</label><textarea v-model="facts.summary" rows="4"></textarea></div>
+          <div class="field"><label>涉及金额（元）</label><input v-model.number="facts.amount" type="number" inputmode="decimal"></div>
+          <div class="field"><label>发生时间</label><input v-model="facts.duration_or_time"></div>
+          <div class="field"><label>找过客服没有</label>
+            <select v-model="facts.prior_contact_status">
+              <option v-for="(label, key) in card.prior_contact_options" :key="key" :value="key">{{ label }}</option>
+            </select>
+          </div>
+          <template v-if="facts.prior_contact_status === 'ticket_logged'">
+            <div class="field"><label>工单编号</label><input v-model="facts.ticket_id"></div>
+            <div class="field"><label>客服工号（选填）</label><input v-model="facts.agent_id"></div>
+            <div class="field"><label>通话日期（选填）</label><input v-model="facts.call_date" type="date"></div>
+          </template>
+        </template>
+      </div>
+      <div class="actions">
+        <button v-if="!editing" class="btn primary" :disabled="busy" @click="act('confirm')">确认无误，下一步</button>
+        <button v-if="!editing" class="btn ghost" @click="editing = true">有出入，点此修改</button>
+        <button v-if="editing" class="btn primary" :disabled="busy" @click="saveFacts">保存修改</button>
+      </div>
+    </section>
+
+    <!-- 节点二：1 分钟打电话取证 -->
+    <section v-if="view.state === 'NODE_2_CALL'">
+      <h1>先打个 1 分钟的电话留证据</h1>
+      <div class="card">
+        <h2>防踩坑三原则</h2>
+        <ol><li v-for="p in card.principles" :key="p">{{ p }}</li></ol>
+      </div>
+      <div class="card">
+        <h2>极速转人工</h2>
+        <a class="btn primary dial" :href="'tel:' + card.transfer.hotline">📞 拨打 {{ card.transfer.carrier_name }} {{ card.transfer.hotline }}</a>
+        <p class="muted">{{ card.transfer.tip }}</p>
+      </div>
+      <div class="card">
+        <h2>照着念</h2>
+        <div v-for="s in card.script" :key="s.label" class="script">
+          <span class="tag">{{ s.label }}</span><p>{{ s.text }}</p>
+        </div>
+      </div>
+      <div class="card">
+        <h2>挂电话前，二选一</h2>
+        <div v-for="c in card.closing" :key="c.branch" class="kv"><span>{{ c.branch }}</span><p>{{ c.text }}</p></div>
+      </div>
+      <div class="actions sticky">
+        <button class="btn ghost" @click="act('call-result', {resolved: true})">已当场解决</button>
+        <button class="btn primary" @click="showCallForm = true">未解决，进入工信部申诉</button>
+      </div>
+      <div v-if="showCallForm" class="sheet">
+        <div class="card">
+          <h2>记下这次通话（有就填）</h2>
+          <div class="field"><label>客服工号</label><input v-model="call.agent_id"></div>
+          <div class="field"><label>工单编号</label><input v-model="call.ticket_id"></div>
+          <div class="field"><label>通话日期</label><input v-model="call.call_date" type="date"></div>
+          <div class="actions">
+            <button class="btn ghost" @click="showCallForm = false">取消</button>
+            <button class="btn primary" :disabled="busy" @click="submitCall">下一步</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 节点三：工信部申诉映射 -->
+    <section v-if="view.state === 'NODE_3_APPEAL'">
+      <h1>去工信部申诉：4 项内容一键复制</h1>
+      <div v-for="m in card.modules" :key="m.key" class="card">
+        <h2>{{ m.title }}</h2>
+        <template v-if="m.key === 'complaint_body'">
+          <textarea v-model="body" rows="8"></textarea>
+          <p :class="['muted', {warn: body.length > m.max_chars}]">{{ body.length }} / {{ m.max_chars }} 字</p>
+          <button class="btn small" @click="copy(m.key, body)">复制</button>
+        </template>
+        <template v-else>
+          <p class="pre">{{ m.text }}</p>
+          <button class="btn small" @click="copy(m.key, m.text)">复制</button>
+        </template>
+      </div>
+      <div class="card">
+        <h2>怎么提交</h2>
+        <ol><li v-for="s in card.nav_steps" :key="s">{{ s }}</li></ol>
+      </div>
+      <div class="actions sticky">
+        <button class="btn primary" :disabled="busy" @click="act('submitted')">我已提交工信部申诉</button>
+      </div>
+    </section>
+
+    <!-- 节点四：专员回电防御 -->
+    <section v-if="view.state === 'NODE_4_CALLBACK'">
+      <h1>等省公司专员回电</h1>
+      <div v-if="card.reminder" class="card notice">申诉已提交 3 天了，专员联系你了吗？按下面的底线谈。</div>
+      <div class="card">
+        <h2>谈判底线卡</h2>
+        <ul><li v-for="l in card.general_red_lines" :key="l">{{ l }}</li></ul>
+        <div v-for="s in card.scenario_lines" :key="s.name">
+          <h3>{{ s.name }}</h3>
+          <ul><li v-for="l in s.lines" :key="l">{{ l }}</li></ul>
+        </div>
+        <p class="muted">提交后超过 {{ card.escalate_after_days }} 天没解决，会自动进入下一步升级。</p>
+      </div>
+      <div class="actions sticky">
+        <button class="btn ghost" @click="act('callback-result', {resolved: false})">协商破裂</button>
+        <button class="btn primary" @click="act('callback-result', {resolved: true})">已落实解决</button>
+      </div>
+    </section>
+
+    <!-- 节点五：兜底升级 -->
+    <section v-if="view.state === 'NODE_5_ESCALATE'">
+      <h1>继续升级反映</h1>
+      <div class="card">
+        <h2>补充说明（复制后附在原事实后面）</h2>
+        <p class="pre">{{ card.original_facts }}</p>
+        <p class="pre">{{ card.supplement }}</p>
+        <button class="btn small" @click="copy('supplement', card.original_facts + '\n' + card.supplement)">复制</button>
+      </div>
+      <div class="card">
+        <h2>可以去这里反映</h2>
+        <ul><li v-for="c in card.channels" :key="c">{{ c }}</li></ul>
+        <p v-if="card.small_claims" class="notice">{{ card.small_claims }}</p>
+      </div>
+      <div class="actions sticky">
+        <button class="btn primary" @click="showSurvey = true">结束并评价</button>
+      </div>
+    </section>
+
+    <!-- 3 秒结案问卷 -->
+    <section v-if="view.state === 'CLOSED' || showSurvey">
+      <div class="card" v-if="!surveyDone">
+        <h2>3 秒小问卷</h2>
+        <p>最终结果</p>
+        <div class="seg">
+          <button v-for="(l, k) in RESULTS" :key="k" :class="{on: survey.result === k}" @click="survey.result = k">{{ l }}</button>
+        </div>
+        <p>哪里最卡？</p>
+        <div class="seg wrap">
+          <button v-for="(l, k) in BLOCKERS" :key="k" :class="{on: survey.blocker_tag === k}" @click="survey.blocker_tag = k">{{ l }}</button>
+        </div>
+        <button class="btn primary" :disabled="!survey.result" @click="submitSurvey">提交</button>
+      </div>
+      <div class="card" v-else><h2>谢谢反馈 🙏</h2><button class="btn ghost" @click="restart">处理新问题</button></div>
+    </section>
+
+    <a v-if="!['CLOSED'].includes(view.state) && !showSurvey && view.state !== 'NODE_1_INTAKE'" class="link quit" @click="quit">不想弄了</a>
+    <p class="disclaimer">本服务为 AI 维权步骤导航，不构成法律咨询；不会替你提交申诉，也不保存你的手机号、身份证号和姓名。</p>
+  </main>
+</div>
+<script src="/static/vendor/vue.global.prod.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
