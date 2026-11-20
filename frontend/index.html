@@ -63,17 +63,23 @@
             <option v-for="p in card.province_options" :key="p" :value="p">{{ p }}</option>
           </select>
         </div>
+        <div class="field">
+          <label>号码归属城市 <i class="req">*</i></label>
+          <input v-model.trim="facts.city" placeholder="地级市，比如 深圳、呼和浩特">
+        </div>
         <template v-if="!editing">
           <div class="kv"><span>事情经过</span><p>{{ card.summary || '—' }}</p></div>
           <div class="kv"><span>涉及金额</span><p>{{ card.amount != null ? card.amount + ' 元' : '—' }}</p></div>
           <div class="kv"><span>发生时间</span><p>{{ card.duration_or_time || '—' }}</p></div>
           <div class="kv"><span>找过客服没有</span><p>{{ card.prior_contact_options[card.prior_contact_status] || '—' }}</p></div>
+          <div class="kv"><span>你希望怎么解决</span><p>{{ card.expectation || '—' }}</p></div>
           <div class="kv" v-if="card.ticket_id"><span>工单编号</span><p>{{ card.ticket_id }}</p></div>
         </template>
         <template v-else>
           <div class="field"><label>事情经过</label><textarea v-model="facts.summary" rows="4"></textarea></div>
           <div class="field"><label>涉及金额（元）</label><input v-model.number="facts.amount" type="number" inputmode="decimal"></div>
           <div class="field"><label>发生时间</label><input v-model="facts.duration_or_time"></div>
+          <div class="field"><label>你希望怎么解决</label><input v-model="facts.expectation" placeholder="比如：全额退钱 / 把号码恢复"></div>
           <div class="field"><label>找过客服没有</label>
             <select v-model="facts.prior_contact_status">
               <option v-for="(label, key) in card.prior_contact_options" :key="key" :value="key">{{ label }}</option>
@@ -87,9 +93,43 @@
         </template>
       </div>
       <div class="actions">
-        <button v-if="!editing" class="btn primary" :disabled="busy" @click="act('confirm')">确认无误，下一步</button>
+        <button v-if="!editing" class="btn primary" :disabled="busy" @click="confirmCard">确认无误，下一步</button>
         <button v-if="!editing" class="btn ghost" @click="editing = true">有出入，点此修改</button>
         <button v-if="editing" class="btn primary" :disabled="busy" @click="saveFacts">保存修改</button>
+      </div>
+    </section>
+
+    <!-- 节点一：法条依据 + 诉求可行性，用户自己选 -->
+    <section v-if="view.state === 'NODE_1_ADVICE'">
+      <h1>依据和建议</h1>
+      <div class="card">
+        <h2>可以用到的规定</h2>
+        <p v-if="card.no_law" class="muted">{{ card.no_law }}</p>
+        <div v-for="law in card.laws" :key="law.id" class="law">
+          <b>{{ law.name }}</b>
+          <span v-if="!law.reviewed" class="badge">待审</span>
+          <p class="pre" v-if="law.text">{{ law.text }}</p>
+          <p class="muted" v-else>原文待法务补充</p>
+        </div>
+      </div>
+      <div class="card">
+        <h2>选你的诉求（可多选）</h2>
+        <label v-for="(d, i) in card.demands" :key="i" :class="['demand', {on: choice.selected.includes(i)}]">
+          <input type="checkbox" :value="i" v-model="choice.selected">
+          <div>
+            <p><b>{{ d.text }}</b> <span v-if="d.from_user" class="badge mine">你的期望</span></p>
+            <p><span :class="['feas', 'f' + d.feasibility]">可行性 {{ d.feasibility }}</span>
+               <span class="muted">{{ d.reason }}</span></p>
+            <p class="muted small" v-if="d.law_names.length">依据：{{ d.law_names.join('、') }}</p>
+          </div>
+        </label>
+        <div class="field"><label>还想加别的诉求（选填）</label>
+          <input v-model="choice.custom" placeholder="比如：书面道歉"></div>
+        <p class="muted small">{{ card.disclaimer }}</p>
+      </div>
+      <div class="actions sticky">
+        <button class="btn ghost" @click="backToConfirm">事实有出入</button>
+        <button class="btn primary" :disabled="busy || (!choice.selected.length && !choice.custom.trim())" @click="chooseDemands">按选中的诉求继续</button>
       </div>
     </section>
 
@@ -135,12 +175,16 @@
 
     <!-- 节点三：工信部申诉映射 -->
     <section v-if="view.state === 'NODE_3_APPEAL'">
-      <h1>去工信部申诉：4 项内容一键复制</h1>
+      <h1>去工信部 12300 申诉</h1>
+      <div class="card">
+        <h2>表单怎么填</h2>
+        <div v-for="g in card.form_guide" :key="g.label" class="kv"><span>{{ g.label }}</span><p>{{ g.value }}</p></div>
+      </div>
       <div v-for="m in card.modules" :key="m.key" class="card">
         <h2>{{ m.title }}</h2>
         <template v-if="m.key === 'complaint_body'">
-          <textarea v-model="body" rows="8"></textarea>
-          <p :class="['muted', {warn: body.length > m.max_chars}]">{{ body.length }} / {{ m.max_chars }} 字</p>
+          <textarea v-model="body" rows="10"></textarea>
+          <p :class="['muted', {warn: body.length > m.max_chars || body.length < m.min_chars}]">{{ body.length }} 字（要求 {{ m.min_chars }} 到 {{ m.max_chars }} 字）</p>
           <button class="btn small" @click="copy(m.key, body)">复制</button>
         </template>
         <template v-else>
@@ -163,6 +207,7 @@
       <div v-if="card.reminder" class="card notice">申诉已提交 3 天了，专员联系你了吗？按下面的底线谈。</div>
       <div class="card">
         <h2>谈判底线卡</h2>
+        <ul><li v-for="l in card.my_lines" :key="l"><b>{{ l }}</b></li></ul>
         <ul><li v-for="l in card.general_red_lines" :key="l">{{ l }}</li></ul>
         <div v-for="s in card.scenario_lines" :key="s.name">
           <h3>{{ s.name }}</h3>

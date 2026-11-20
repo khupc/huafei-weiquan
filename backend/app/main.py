@@ -72,6 +72,8 @@ class Message(BaseModel):
 class Facts(BaseModel):
     carrier: Literal["CMCC", "CUCC", "CTCC", "CBN"] | None = None
     province: str | None = None
+    city: str | None = None
+    expectation: str | None = None
     summary: str | None = None
     amount: float | None = None
     duration_or_time: str | None = None
@@ -88,8 +90,13 @@ class CallResult(BaseModel):
     call_date: str | None = None
 
 
+class Choice(BaseModel):
+    selected: list[int] = []
+    custom: str | None = None
+
+
 class Copy(BaseModel):
-    module: Literal["company", "prior_record", "complaint_body", "demands", "supplement"]
+    module: Literal["complaint_body", "ticket_id", "supplement"]
     text: str
 
 
@@ -138,6 +145,12 @@ def edit_facts(body: Facts, case: Case = Depends(load_case), db: Session = Depen
 @app.post("/api/cases/{case_id}/confirm")
 def confirm(case: Case = Depends(load_case), db: Session = Depends(get_session)):
     fsm.confirm(db, case, llm)
+    return done(db, case)
+
+
+@app.post("/api/cases/{case_id}/demands")
+def choose_demands(body: Choice, case: Case = Depends(load_case), db: Session = Depends(get_session)):
+    fsm.choose_demands(db, case, llm, body.selected, body.custom)
     return done(db, case)
 
 

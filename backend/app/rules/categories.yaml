@@ -1,5 +1,6 @@
-# Spec 4.3 S1-S7 规则总表。S1-S7 仅为后台路由标识，绝不展示给用户。
-# legal_review: pending —— law_refs / demand / bottom_lines 均照搬 v1.2 文档“方向”，
+# Spec 4.3 S1-S7 规则总表。S1-S7 现在只作统计标签和关键词版的兜底，绝不展示给用户。
+# laws 引用 laws.yaml 里的 id。
+# legal_review: pending —— laws / demand / bottom_lines 均照搬 v1.2 文档“方向”，
 # 未经法务审校，上线前必须由法务/律师逐条确认条文号与表述。
 # stub_keywords 只给本地 stub 模型做关键词分类用，接入真实模型后不再使用。
 legal_review: pending
@@ -7,7 +8,7 @@ legal_review: pending
 categories:
   S1:
     name: 乱扣费
-    law_refs: 《电信条例》第40条、《消法》第9条/第26条
+    laws: [telecom_reg_40, consumer_9, consumer_26]
     demand: 取消未经确认的业务，全额退还自扣费首月起的全部费用
     bottom_lines:
       - 坚持全额退还自扣费首月起的费用，不接受“只退近3个月”
@@ -16,7 +17,7 @@ categories:
     stub_keywords: [扣费, 扣钱, 乱扣, 莫名, 彩铃, 增值业务, 偷开, 被订阅, 扣了]
   S2:
     name: 改套餐受阻
-    law_refs: 工信部资费规范、《电信条例》
+    laws: [miit_tariff, telecom_reg_40]
     demand: 立即将套餐变更为在售的目标套餐，并核退多收的差额
     bottom_lines:
       - 不接受“原套餐 + 临时折扣包”（到期会恢复高价）
@@ -24,7 +25,7 @@ categories:
     stub_keywords: [改套餐, 换套餐, 降套餐, 低价套餐, 不给办, 套餐变更, 改不了]
   S3:
     name: 隐形合约与违约金
-    law_refs: 《消法》第8条/第26条、携号转网规范
+    laws: [consumer_8, consumer_26, miit_mnp]
     demand: 解除未经明确告知的隐形合约，免除违约金
     bottom_lines:
       - 没有补贴或从未告知合约的，坚持 0 违约金解约
@@ -32,7 +33,7 @@ categories:
     stub_keywords: [合约, 违约金, 携号转网, 协议期, 捆绑]
   S4:
     name: 高频营销骚扰
-    law_refs: 《民法典》第1033条、呼叫/短信管理规定
+    laws: [civil_1033, miit_marketing_calls]
     demand: 将本号码加入永久免打扰名单，停止一切商业外呼和营销短信
     bottom_lines:
       - 要求关闭外包营销渠道对本号码的外呼权限
@@ -40,7 +41,7 @@ categories:
     stub_keywords: [骚扰, 营销电话, 推销, 营销短信, 天天打电话, 外呼]
   S5:
     name: 无故停机与靓号条款
-    law_refs: 工信部《电信服务规范》
+    laws: [miit_service_std]
     demand: 线上核验后恢复通信 / 解除到期低消，并减免停机期间月租
     bottom_lines:
       - 人在外地的，不接受“必须回开户地营业厅”，争取线上视频核验
@@ -48,7 +49,7 @@ categories:
     stub_keywords: [停机, 停了, 靓号, 低消, 最低消费, 封号, 不能打电话]
   S6:
     name: 宽带拆机与押金不退
-    law_refs: 《消法》第9条、《民法典》押金返还规定
+    laws: [consumer_9, civil_deposit]
     demand: 解除捆绑限制，办理宽带拆机，并全额退还设备押金
     bottom_lines:
       - 归还设备时拍下 SN 码并索要回执单
@@ -56,7 +57,7 @@ categories:
     stub_keywords: [宽带, 拆机, 押金, 光猫, 机顶盒]
   S7:
     name: 通信质量与网络故障
-    law_refs: 《电信条例》第40条、《电信服务规范》
+    laws: [telecom_reg_40, miit_service_std]
     demand: 安排上门检测并修复网络，按故障时长减免月租
     bottom_lines:
       - 不接受“正在优化”这类无限期拖延，要求给出明确的修复时间
