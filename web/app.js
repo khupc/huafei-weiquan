@@ -1,7 +1,7 @@
 // 劳动仲裁 H5 测试版：页面状态与流程（P0–P6）。
 // 金额、分档、法条都来自 engine/ 和 rules/；模型只用来从大白话里抽取事实、起草「事实与理由」。
 (function () {
-  const { rules: R, regions: G, facts: F, engine: E } = window.LA;
+  const { rules: R, regions: G, facts: F, engine: E, docs: D } = window.LA;
   const { createApp, reactive, computed, watch, nextTick } = Vue;
   const today = () => new Date().toISOString().slice(0, 10);
 
@@ -9,6 +9,12 @@
   const model = reactive({ status: '连接中…', ok: false });
   let samplePromise = Promise.resolve(null);
   if (window.claude && window.claude.use) samplePromise = window.claude.use('sample').catch(() => null);
+  // 图片识别能力：只有 artifact 声明了 sample.images 且当前环境支持时才有
+  const imgCaps = reactive({ ok: false, accept: 'image/*', max: 4 });
+  samplePromise.then(async s => {
+    const l = s && await s.limits().catch(() => null);
+    if (l && l.images) { imgCaps.ok = true; imgCaps.accept = l.images.mediaTypes.join(','); imgCaps.max = l.images.maxCount; }
+  });
   samplePromise.then(s => { model.ok = !!s; model.status = s ? 'Claude（首次调用会请你授权）' : '关键词版（当前环境用不了模型）'; });
 
   const SLOT_SCHEMA = `city: 工作所在城市，写地级市名（如 苏州、深圳），不带「市」
@@ -131,7 +137,7 @@ ${SLOT_SCHEMA}
   function blankCase() {
     return {
       id: 'c' + Date.now(), updated: null, page: 'P1', facts: {}, manual: {}, uncertain: {},
-      chat: [{ role: 'ai', text: GREETING }], evidence: { labor_relation: [], wage: [], termination: [] }, selected: [], avgWage: null, minWage: null, regAvgWage: null, regMinWage: null,
+      chat: [{ role: 'ai', text: GREETING }], evidence: { labor_relation: [], wage: [], termination: [] }, selected: [], recognized: [], avgWage: null, minWage: null, regAvgWage: null, regMinWage: null,
       app: { applicant: { name: '', gender: '', id_no: '', address: '', phone: '' }, respondent: { name: '', address: '', legal_rep: '', credit_code: '' }, reasons: '', step: 1 },
     };
   }
@@ -266,10 +272,47 @@ ${SLOT_SCHEMA}
         const i = st.selected.indexOf(id);
         if (i >= 0) st.selected.splice(i, 1); else st.selected.push(id);
       }
+      // 点证据标签：没勾的勾上并请用户上传照片（取消上传也保持勾选）；已勾的再点取消
       function toggleEvidence(group, opt) {
         const arr = st.evidence[group];
         const i = arr.indexOf(opt);
-        if (i >= 0) arr.splice(i, 1); else arr.push(opt);
+        if (i >= 0) { arr.splice(i, 1); return; }
+        arr.push(opt);
+        upload(D.kindOfTag(opt), opt, group + '|' + opt);
+      }
+
+      // ---------- 上传与识别 ----------
+      const files = reactive({});          // 本次打开页面上传的文件，只在内存里，刷新后不保留
+      function upload(kind, tag, slot) {
+        const inp = document.createElement('input');
+        inp.type = 'file'; inp.multiple = true;
+        inp.accept = imgCaps.ok ? imgCaps.accept + ',application/pdf' : 'image/*,application/pdf';
+        inp.onchange = () => { const list = [...inp.files]; if (list.length) recognize(kind, tag, slot || tag, list); };
+        inp.click();
+      }
+      async function recognize(kind, tag, slot, list) {
+        files[slot] = [...(files[slot] || []), ...list.map(f => ({ name: f.name, url: URL.createObjectURL(f) }))];
+        const imgs = imgCaps.ok ? list.filter(f => imgCaps.accept.split(',').includes(f.type)).slice(0, imgCaps.max) : [];
+        const rec = { tag, kind, at: new Date().toISOString(), filled: [], conflicts: [], note: '', busy: true };
+        st.recognized.unshift(rec);
+        const r = st.recognized[0];
+        if (!imgs.length) {
+          r.busy = false;
+          r.note = imgCaps.ok ? '已附上。PDF 暂时不能识别，请上传照片或截图。' : '已附上。当前环境不能识别图片，相关信息请手动填写。';
+          return;
+        }
+        try {
+          const sample = await samplePromise;
+          const data = await sample.json(D.prompt(kind, tag), { images: imgs });
+          if (data && data.doc_ok === false) r.note = `这张看起来不像「${tag}」，请确认上传的文件。`;
+          const out = D.apply(kind, data, { facts: st.facts, manual: st.manual, applicant: st.app.applicant, respondent: st.app.respondent });
+          r.filled = out.filled; r.conflicts = out.conflicts;
+          if (out.reason) r.note = (r.note ? r.note + ' ' : '') + `材料上写的解除理由：「${out.reason}」`;
+          if (!out.filled.length && !out.conflicts.length && !r.note) r.note = '没有读到新的信息。';
+        } catch (e) {
+          r.note = e && e.code === 'not_granted' ? '你没有授权使用 Claude，没法识别，相关信息请手动填写。' : '识别没有成功，可以换一张清楚点的照片再试。';
+        }
+        r.busy = false;
       }
       function go(p) { st.page = p; window.scrollTo(0, 0); }
 
@@ -372,7 +415,7 @@ ${SLOT_SCHEMA}
       const stdOrigin = k => { const w = stdOf(st.facts.city, st.avgWage, st.minWage); return w ? w.origin[k] : '待补'; };
       const pct = k => totals.value.total ? (totals.value[k] / totals.value.total * 100) + '%' : '0%';
 
-      return { st, ui, R, E, F, G, PAGES, model, allCities, std, stdCity, stdOrigin, analysis, chosen, conflicts, totals, next, prog, factRows, evidenceGroups, arbitration,
+      return { st, ui, R, E, F, G, PAGES, model, allCities, std, stdCity, stdOrigin, imgCaps, files, upload, kindOfTag: D.kindOfTag, analysis, chosen, conflicts, totals, next, prog, factRows, evidenceGroups, arbitration,
         answer, pick, notSure, editFact, toAnalysis, toggleClaim, toggleEvidence, go, newCase, openCase, appNext, exportApp, draft, requestLines,
         save, evidenceDoc, applicationDoc, examples, useExample, fillSample, tierClass, statusClass, pct, display, labelOf, today };
     },

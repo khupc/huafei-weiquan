@@ -342,12 +342,24 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
     <template v-if="st.page === 'P5'">
       <section class="card">
         <h2>证据清单</h2>
-        <p class="sub">只列和你选的请求有关的证据。有哪个勾哪个，勾选会更新报告里的分档。</p>
+        <p class="sub">只列和你选的请求有关的证据。点一下就勾上，并可以上传照片：{{ imgCaps.ok ? '我会读出上面的信息，自动记下，写申请书时不用再填。' : '当前环境不能识别图片，照片只做附件。' }}勾选会更新报告里的分档。</p>
+      </section>
+      <section v-if="st.recognized.length" class="card stack">
+        <h3>从你的材料里读到</h3>
+        <div v-for="(r, i) in st.recognized" :key="i" class="calc-line">
+          <b>{{ r.tag }}</b>
+          <span v-if="r.busy" class="formula">正在识别…你可以继续勾选其他材料</span>
+          <span v-if="r.filled.length" class="formula">已记下：{{ r.filled.join('、') }}</span>
+          <span v-for="c in r.conflicts" class="formula" style="color:var(--need)">{{ c }}</span>
+          <span v-if="r.note" class="formula">{{ r.note }}</span>
+        </div>
+        <p class="sub">读到的信息已写进事实摘要和申请书，可以随时修改。</p>
       </section>
       <section v-for="g in evidenceGroups" :key="g.group" class="card ev-group">
         <h3>{{ g.title }}</h3>
         <p class="sub">{{ g.purpose }}</p>
-        <div class="row"><button v-for="o in g.options" :key="o" class="chip" :class="{on: st.evidence[g.group].includes(o)}" @click="toggleEvidence(g.group, o)">{{ o }}</button></div>
+        <div class="row"><button v-for="o in g.options" :key="o" class="chip" :class="{on: st.evidence[g.group].includes(o)}" @click="toggleEvidence(g.group, o)">{{ o }}<template v-if="files[g.group + '|' + o]"> · {{ files[g.group + '|' + o].length }} 个文件</template></button></div>
+        <div class="row"><button v-for="o in st.evidence[g.group]" :key="'u' + o" class="btn plain" @click="upload(kindOfTag(o), o, g.group + '|' + o)">＋ 给「{{ o }}」再传一张</button></div>
       </section>
       <section class="card stack">
         <div v-for="c in chosen" :key="c.id" class="el"><span>{{ c.title }}</span><span class="tier" :class="tierClass(c.tier)">{{ c.tier }}</span></div>
@@ -363,6 +375,11 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
         <span class="eyebrow">第 {{ st.app.step }} 步 / 共 3 步</span>
         <h2>{{ ['当事人信息', '仲裁请求', '事实与理由'][st.app.step - 1] }}</h2>
         <template v-if="st.app.step === 1">
+          <div class="row">
+            <button class="btn ghost" @click="upload('id_card', '身份证')">拍身份证自动填</button>
+            <button class="btn ghost" @click="upload('license', '营业执照')">传营业执照或合同，填公司信息</button>
+          </div>
+          <p class="sub" v-if="st.recognized.length">已从你上传的材料里自动填写，请核对。{{ st.recognized.some(r => r.busy) ? '还有材料在识别中…' : '' }}</p>
           <h3>申请人（你）</h3>
           <label class="f">姓名<input id="a-name" v-model="st.app.applicant.name"></label>
           <label class="f">性别<select id="a-gender" v-model="st.app.applicant.gender"><option value="">请选择</option><option>男</option><option>女</option></select></label>
@@ -412,4 +429,5 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
 <script src="rules/rules.js"></script>
 <script src="engine/facts.js"></script>
 <script src="engine/engine.js"></script>
+<script src="engine/docs.js"></script>
 <script src="web/app.js"></script>
