@@ -1,0 +1,158 @@
+const test = require('node:test');
+const assert = require('node:assert');
+const E = require('../engine/engine.js');
+const F = require('../engine/facts.js');
+const G = require('../rules/regions.js');
+
+const TODAY = '2026-11-22';
+// 报告里的示例案例：3 年 4 个月，月薪 9000，口头辞退没给理由，没签合同
+const sample = {
+  start_date: '2022-06-15', end_date: '2025-10-15', monthly_wage: 9000,
+  separation: 'company_terminated', termination_form: 'oral', termination_reason: 'none',
+  signed_contract: 'no', wages_owed: 'no',
+};
+
+test('工作年限：3 年 4 个月按 3.5', () => {
+  assert.strictEqual(E.serviceYears('2022-06-15', '2025-10-15').n, 3.5);
+});
+test('工作年限：余数满 6 个月进 1', () => {
+  assert.strictEqual(E.serviceYears('2022-01-01', '2024-07-01').n, 3);
+  assert.strictEqual(E.serviceYears('2024-01-01', '2024-03-01').n, 0.5);
+  assert.strictEqual(E.serviceYears('2023-01-01', '2025-01-01').n, 2);
+});
+
+test('违法解除 2N：9000 × 3.5 × 2 = 63000（和报告示例一致）', () => {
+  const r = E.illegalTermination(sample, null);
+  assert.strictEqual(r.amount, 63000);
+  assert.match(r.formula, /31,500/);
+  assert.ok(r.notes.some(n => n.includes('待补')));
+});
+
+test('校准文档例 1：2021-03-01 入职、2024-09-15 违法解除、月薪 9000 → 72000', () => {
+  const r = E.illegalTermination({ start_date: '2021-03-01', end_date: '2024-09-15', monthly_wage: 9000 }, null);
+  assert.strictEqual(r.n, 4);
+  assert.strictEqual(r.amount, 72000);
+});
+test('校准文档封顶例：W 40000、S 12000、15 年 → 36000 × 12 × 2 = 864000', () => {
+  const r = E.illegalTermination({ start_date: '2010-01-01', end_date: '2025-01-01', monthly_wage: 40000 }, { avg_wage: 12000 });
+  assert.strictEqual(r.base, 36000);
+  assert.strictEqual(r.n, 12);
+  assert.strictEqual(r.amount, 864000);
+});
+test('没超过 3 倍社平的不封顶年限', () => {
+  const r = E.compensation({ start_date: '2010-01-01', end_date: '2025-01-01', monthly_wage: 9000 }, { avg_wage: 12000 });
+  assert.strictEqual(r.n, 15);
+});
+test('低于最低工资按最低工资', () => {
+  const r = E.compensation({ start_date: '2024-01-01', end_date: '2025-01-01', monthly_wage: 1500 }, { min_wage: 2490 });
+  assert.strictEqual(r.base, 2490);
+});
+test('月工资含加班费时给出保守值', () => {
+  const r = E.illegalTermination({ start_date: '2021-03-01', end_date: '2024-09-15', monthly_wage: 9000, monthly_overtime: 1000 }, null);
+  assert.strictEqual(r.amount, 72000);
+  assert.strictEqual(r.conservative, 64000);
+});
+test('校准文档二倍工资例：2024-03-10 入职、2024-12-20 离职、月薪 8000 → 约 67310', () => {
+  const r = E.doubleWage({ start_date: '2024-03-10', end_date: '2024-12-20', monthly_wage: 8000, signed_contract: 'no' }, null, '2024-12-25');
+  assert.strictEqual(r.full, 8);
+  assert.strictEqual(r.days, 9);
+  assert.strictEqual(r.amount, 67310.34);
+});
+test('工作日计数', () => { assert.strictEqual(E.workdays('2024-12-10', '2024-12-20'), 9); });
+
+test('二倍工资：最多 11 个月；全部超过一年时保守值为 0', () => {
+  const r = E.doubleWage(sample, null, TODAY);
+  assert.strictEqual(r.full, 11);
+  assert.strictEqual(r.amount, 99000);
+  assert.strictEqual(r.conservative, 0);
+});
+test('二倍工资：补订前一日截止', () => {
+  const f = { ...sample, signed_contract: 'later', contract_signed_date: '2022-10-15' };
+  const r = E.doubleWage(f, null, TODAY);
+  assert.strictEqual(r.full, 3);
+  assert.strictEqual(r.days, 0);
+});
+
+test('缺参数时不出金额，列出缺什么', () => {
+  const r = E.illegalTermination({ start_date: '2022-01-01' }, null);
+  assert.strictEqual(r.amount, null);
+  assert.deepStrictEqual(r.lack, ['离职日期', '月工资']);
+});
+
+test('分析：示例案例列出违法解除、恢复劳动关系、二倍工资，不列拖欠工资', () => {
+  const a = E.analyze(sample, null, {}, TODAY);
+  const ids = a.claims.map(c => c.id).sort();
+  assert.deepStrictEqual(ids, ['double_wage', 'illegal_termination', 'reinstatement']);
+  // 没勾证据 → 需补证；二倍工资的月份超过一年前 → 有争议
+  assert.strictEqual(a.claims.find(c => c.id === 'illegal_termination').tier, '需补证');
+  assert.strictEqual(a.claims.find(c => c.id === 'double_wage').tier, '有争议');
+});
+
+test('分析：只有聊天记录仍需补证，有解除通知书才是基本稳', () => {
+  const ev = { labor_relation: ['工资银行流水（单位付款）'], termination: ['辞退聊天记录'] };
+  assert.strictEqual(E.analyze(sample, null, ev, TODAY).claims.find(c => c.id === 'illegal_termination').tier, '需补证');
+  ev.termination.push('解除通知书');
+  assert.strictEqual(E.analyze(sample, null, ev, TODAY).claims.find(c => c.id === 'illegal_termination').tier, '基本稳');
+});
+test('分析：签过离职文件、负责人事 → 有争议', () => {
+  const a = E.analyze({ ...sample, signed_exit_doc: 'yes', hr_role: 'yes', end_date: '2026-10-01', start_date: '2026-01-01' }, null, {}, TODAY);
+  assert.strictEqual(a.claims.find(c => c.id === 'illegal_termination').tier, '有争议');
+  assert.strictEqual(a.claims.find(c => c.id === 'double_wage').tier, '有争议');
+});
+
+test('分析：公司说违纪 → 有争议', () => {
+  const a = E.analyze({ ...sample, termination_reason: 'misconduct' }, null, {}, TODAY);
+  assert.strictEqual(a.claims.find(c => c.id === 'illegal_termination').tier, '有争议');
+});
+
+test('分析：自己辞职不列违法解除；欠薪 + 辞职识别出被迫辞职（暂不支持）', () => {
+  const a = E.analyze({ ...sample, separation: 'resigned', wages_owed: 'yes', wages_owed_amount: 12000 }, null, {}, TODAY);
+  assert.ok(!a.claims.some(c => c.id === 'illegal_termination'));
+  assert.strictEqual(a.claims.find(c => c.id === 'unpaid_wages').calc.amount, 12000);
+  assert.ok(a.unsupported.some(u => u.id === 'constructive_dismissal'));
+});
+
+test('互斥：赔偿金和恢复劳动关系', () => {
+  assert.strictEqual(E.conflicts(['illegal_termination', 'reinstatement']).length, 1);
+  assert.strictEqual(E.conflicts(['illegal_termination', 'double_wage']).length, 0);
+});
+
+test('时效倒计时', () => {
+  const a = E.analyze({ ...sample, end_date: '2026-10-21' }, null, {}, TODAY);
+  assert.strictEqual(a.limitation.days, 32);
+  assert.strictEqual(a.limitation.expired, false);
+});
+
+test('追问顺序：先问离职方式，在职不问离职日期', () => {
+  assert.strictEqual(F.nextSlot({}).key, 'separation');
+  const n = F.nextSlot({ separation: 'still_employed', start_date: '2024-01-01' });
+  assert.strictEqual(n.key, 'monthly_wage');
+});
+test('「不确定」一次换问法，两次跳过', () => {
+  assert.strictEqual(F.nextSlot({}, { separation: 1 }).useAlt, true);
+  assert.strictEqual(F.nextSlot({}, { separation: 2 }).key, 'start_date');
+});
+
+test('关键词兜底能读懂报告里的示例句', () => {
+  const f = F.keywordExtract('在某市做了3年4个月仓库主管，月薪9000，上个月被口头通知明天别来了，没签过劳动合同，工资每月微信转账', TODAY);
+  assert.strictEqual(f.monthly_wage, 9000);
+  assert.strictEqual(f.separation, 'company_terminated');
+  assert.strictEqual(f.termination_form, 'oral');
+  assert.strictEqual(f.signed_contract, 'no');
+  assert.strictEqual(f.end_date, '2026-10-01');
+  assert.strictEqual(f.start_date, '2023-06-01');
+});
+
+test('地区表：覆盖全部省级单位，市级覆盖优先于省级默认', () => {
+  assert.strictEqual(G.PROVINCES.length, 31);
+  assert.ok(G.PROVINCES.reduce((s, p) => s + p.cities.length, 0) > 330);
+  G.PROVINCE_DEFAULTS['广东省'].avg_wage[2025] = { value: 8000 };
+  G.CITY_OVERRIDES['深圳'] = { avg_wage: { 2025: { value: 12000 } }, overtime_in_base: '是' };
+  // 2026 年解除取 2025 年度（上年度）
+  assert.strictEqual(G.standardsFor('深圳', '2026-03-01').avg_wage, 12000);
+  assert.strictEqual(G.standardsFor('深圳', '2026-03-01').origin.avg_wage, '市级');
+  assert.strictEqual(G.standardsFor('深圳', '2026-03-01').overtime_in_base, '是');
+  assert.strictEqual(G.standardsFor('广州', '2026-03-01').origin.avg_wage, '省级');
+  assert.strictEqual(G.standardsFor('广州', '2025-03-01').origin.avg_wage, '待补');
+  assert.strictEqual(G.standardsFor('苏州', '2026-03-01').origin.avg_wage, '待补');
+});
