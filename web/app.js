@@ -582,6 +582,39 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
         };
         inp.click();
       }
+      // 线上平台填写对照表（目前是北京平台，按平台七步顺序；字段全部取自信息链和代码结果）
+      const cut = (t, n) => String(t || '').slice(0, n);
+      const platformSteps = computed(() => {
+        const a = st.app.applicant, r = st.app.respondent, n = (appFormat.value.online && appFormat.value.online.upload || {}).nameMax || 30;
+        return [
+          { title: '申请人信息', note: '京通会自动带出，核对一下', rows: [['姓名', a.name], ['身份证号', a.id_no], ['联系电话', a.phone], ['住址', a.address]] },
+          { title: '被申请人', note: '输入单位全称后，要从下拉列表里选中', rows: [['单位全称', r.name], ['统一社会信用代码', r.credit_code], ['住所', r.address], ['法定代表人', r.legal_rep]] },
+          { title: '请求事项', note: '逐项添加：名称 + 金额 + 明细', rows: chosen.value.flatMap((c, i) => [[`第 ${i + 1} 项名称`, c.title], [`第 ${i + 1} 项金额（元）`, c.calc && c.calc.amount != null ? String(c.calc.amount) : '不涉及金额'], [`第 ${i + 1} 项明细`, c.calc && c.calc.formula || requestLines()[i]]]) },
+          { title: '事实与理由', note: '单独一段，整段粘贴', rows: [['事实与理由', st.app.reasons]] },
+          { title: '送达地址确认书', note: '选是否同意电子送达', rows: [['送达地址', a.service_address || a.address], ['电子邮箱', a.email], ['是否同意电子送达', a.email ? '同意' : '按你的意愿选']] },
+          { title: '上传证据', note: `名称和证明事项各不超过 ${n} 字；一次只能传同一种格式`, rows: evItems.value.flatMap((it, i) => [[`证据 ${i + 1} 名称`, cut(it.tag, n)], [`证据 ${i + 1} 证明事项`, cut(it.purpose, n)], [`证据 ${i + 1} 页数`, String((files[it.group.group + '|' + it.tag] || []).length || '按实际张数')]]) },
+          { title: '提交', note: '选仲裁委，选是否同意调解', rows: [['仲裁委', arbitration.value], ['是否同意调解', '按你的意愿选；同意调解不影响仲裁']] },
+        ];
+      });
+      async function copyText(t) {
+        try { await navigator.clipboard.writeText(String(t || '')); flash('已复制'); }
+        catch (e) { flash('这里不能自动复制，请长按文字选择复制'); }
+      }
+      // 证据文件按清单顺序命名后打包（01-劳动合同-1.jpg …），线上上传或打印都用这个顺序
+      async function saveEvidenceZip() {
+        const zip = new JSZip(); let n = 0;
+        for (const [i, it] of evItems.value.entries()) {
+          for (const [j, f] of (files[it.group.group + '|' + it.tag] || []).entries()) {
+            const ext = (f.name.match(/\.[a-z0-9]+$/i) || [''])[0];
+            zip.file(`${String(i + 1).padStart(2, '0')}-${it.tag}-${j + 1}${ext}`, await (await fetch(f.url)).blob()); n++;
+          }
+        }
+        if (!n) { flash('还没有上传证据文件。刷新页面后，之前上传的文件不会保留，需要重新上传'); return; }
+        const dl = window.claude && window.claude.use ? await window.claude.use('downloads').catch(() => null) : null;
+        if (!dl) { flash('当前环境不能下载文件'); return; }
+        try { await dl.save({ filename: '证据文件（按清单顺序）.zip', data: await zip.generateAsync({ type: 'blob' }) }); flash('已交给浏览器保存'); }
+        catch (e) { if (!(e && e.code === 'declined')) flash('打包下载没有成功'); }
+      }
       async function saveIcs() {
         const text = P.ics(events.value, '劳动仲裁');
         const dl = window.claude && window.claude.use ? await window.claude.use('downloads').catch(() => null) : null;
@@ -742,7 +775,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       const pct = k => totals.value.total ? (totals.value[k] / totals.value.total * 100) + '%' : '0%';
 
       return { st, ui, R, E, F, G, PAGES, model, allCities, std, stdCity, stdOrigin, imgCaps, files, upload, kindOfTag: D.kindOfTag, analysis, chosen, conflicts, totals, next, prog, factRows, evidenceGroups, arbitration,
-        answer, pick, notSure, editFact, toAnalysis, pendingKeys, confirmParams, gate, supplement, organizeEvidence, evItems, src, resolveAsk, confirmRec, guideQs, fillHint, partyMissing, partyDone, claimCheck, uploadInChat, eligible, institution, copyCount, materialList, checkItems, events, limitNear, uploadReceipt, saveIcs, serviceAddressDoc, powerOfAttorneyDoc, printListDoc, printPackage, hasRecording, reasonProblems, appFormat, W, toggleClaim, toggleEvidence, go, newCase, openCase, appNext, exportApp, draft, requestLines,
+        answer, pick, notSure, editFact, toAnalysis, pendingKeys, confirmParams, gate, supplement, organizeEvidence, evItems, src, resolveAsk, confirmRec, guideQs, fillHint, partyMissing, partyDone, claimCheck, uploadInChat, eligible, institution, platformSteps, copyText, saveEvidenceZip, copyCount, materialList, checkItems, events, limitNear, uploadReceipt, saveIcs, serviceAddressDoc, powerOfAttorneyDoc, printListDoc, printPackage, hasRecording, reasonProblems, appFormat, W, toggleClaim, toggleEvidence, go, newCase, openCase, appNext, exportApp, draft, requestLines,
         save, evidenceDoc, applicationDoc, examples, useExample, fillSample, tierClass, statusClass, pct, display, labelOf, today };
     },
   }).mount('#app');

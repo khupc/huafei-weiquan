@@ -538,11 +538,29 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
         <p class="sub" v-else>窗口地址和电话还没录入（待核）。可以拨打 12333 问「{{ st.facts.city }}劳动仲裁在哪里交」，或搜索当地人社局官网的「劳动人事争议仲裁办事指南」。市级和区县级仲裁委怎么分工各地不同，电话里一并问清。</p>
         <p class="sub">工作地和公司所在地的仲裁委都可以受理；默认推荐工作地。</p>
       </section>
+      <!-- 推荐线上的地区：平台填写对照表（按平台步骤顺序，每项可复制） -->
+      <section v-if="appFormat.online && appFormat.online.recommend" class="card stack" id="platform">
+        <h2>推荐线上提交</h2>
+        <p class="sub">{{ appFormat.online.entry }}。现场和邮寄见下方，作为备选。</p>
+        <div class="warn">开始前确认：{{ appFormat.online.conditions.join('；') }}。</div>
+        <div v-if="appFormat.online.jurisdiction_evidence" class="warn">{{ appFormat.online.jurisdiction_evidence }}</div>
+        <p class="sub">下面按平台的顺序排好，照着一项项填，点「复制」再粘贴到平台对应的框里。</p>
+        <div v-for="(step, i) in platformSteps" :key="step.title" class="calc-line stack">
+          <b>第 {{ i + 1 }} 步　{{ step.title }}</b><span class="formula">{{ step.note }}</span>
+          <div v-for="r in step.rows" class="row" style="align-items:flex-start">
+            <span class="sub" style="min-width:7em">{{ r[0] }}</span><span class="grow" style="white-space:pre-wrap;word-break:break-all">{{ r[1] || '（空）' }}</span>
+            <button v-if="r[1]" class="btn plain" style="padding:2px 8px" @click="copyText(r[1])">复制</button>
+          </div>
+        </div>
+        <p class="sub">上传要求：格式只能是 {{ appFormat.online.upload.types }}；单个文件不超过 {{ appFormat.online.upload.maxMB }}MB；一次只能传同一种格式；{{ appFormat.online.upload.page }}。{{ appFormat.online.upload.recordingText ? '录音要另附文字材料。' : '' }}</p>
+        <button id="dl-evidence-zip" class="btn ghost block" @click="saveEvidenceZip">下载证据文件（按清单顺序命名打包）</button>
+        <p class="sub"><b>交完之后：</b>{{ appFormat.online.after.join('') }}</p>
+      </section>
       <section class="card stack">
-        <h2>三种提交方式</h2>
+        <h2>{{ appFormat.online && appFormat.online.recommend ? '其他提交方式' : '三种提交方式' }}</h2>
         <div class="calc-line"><b>现场提交（最稳妥）</b><span class="formula">带上打印好的整套材料和身份证原件，到窗口递交。<b>一定要索要收件回执</b>并拍照：材料不齐的，仲裁委会当场或 5 个工作日内一次性告诉你要补什么（办案规则第 29 条）。</span></div>
-        <div class="calc-line"><b>邮寄</b><span class="formula">{{ appFormat.mail ? '邮寄地址：' + appFormat.mail : '当地是否接受邮寄、寄到哪里，待核，寄之前先打电话确认。' }}建议用 EMS 并保留单号。</span></div>
-        <div class="calc-line"><b>线上</b><span class="formula" v-if="appFormat.online">{{ appFormat.online.name }}：<a :href="appFormat.online.url" target="_blank" rel="noopener">{{ appFormat.online.url }}</a>。按页面提示逐项上传：申请书、证据清单、证据照片、身份证正反面。</span><span class="formula" v-else-if="appFormat.online_note">{{ appFormat.online_note }}</span><span class="formula" v-else>全国没有统一的线上仲裁入口，当地线上渠道待核。人社部的在线调解平台只办调解，不办仲裁申请。</span></div>
+        <div class="calc-line"><b>邮寄</b><span class="formula">{{ appFormat.mail || '当地是否接受邮寄、寄到哪里，待核，寄之前先打电话确认。' }}建议用 EMS 并保留单号。</span></div>
+        <div class="calc-line"><b>线上</b><span class="formula" v-if="appFormat.online && appFormat.online.recommend">见上方「推荐线上提交」。</span><span class="formula" v-else-if="appFormat.online">{{ appFormat.online.name }}：<a :href="appFormat.online.url" target="_blank" rel="noopener">{{ appFormat.online.url }}</a>。按页面提示逐项上传：申请书、证据清单、证据照片、身份证正反面。</span><span class="formula" v-else-if="appFormat.online_note">{{ appFormat.online_note }}</span><span class="formula" v-else>全国没有统一的线上仲裁入口，当地线上渠道待核。人社部的在线调解平台只办调解，不办仲裁申请。</span></div>
       </section>
       <section class="card stack">
         <h2>出门前自查</h2>

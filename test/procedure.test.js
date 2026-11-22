@@ -44,5 +44,5 @@ test('北京区级仲裁窗口：已核 11 区有地址电话，未核的为空'
   assert.strictEqual(f.districts['朝阳'].phone, '010-87983310');
   assert.strictEqual(f.districts['大兴'], null);
   assert.strictEqual(Object.values(f.districts).filter(Boolean).length, 11);
-  assert.strictEqual(f.online, null);
+  assert.strictEqual(f.online.name, '北京市劳动人事争议调解仲裁网上服务平台');
 });
