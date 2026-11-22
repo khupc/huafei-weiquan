@@ -52,11 +52,18 @@
   // 没有数据的一律为空或「有争议」，页面提示「该地标准待补，可自行填写」。
   // application_format：申请书格式与份数。法定栏目全国统一（调解仲裁法第 28 条），格式、份数、是否线上立案各地不同，按地区填
   const POLICY_FIELDS = ['overtime_in_base', 'bonus_allocation', 'double_wage_limitation', 'monthly_workdays', 'application_format'];
-  const DEFAULT_APP_FORMAT = { copies: '正本 1 份，并按被申请人人数提交副本', template: null, online: null, note: '格式和份数以当地仲裁委要求为准' };
+  // 份数默认：申请书、证据清单、证据复印件各「被申请人数 + 2」份交仲裁委，自留 1 份（呼伦贝尔样本，待核）
+  // institution：区县级仲裁院名称、窗口地址、邮寄地址、电话、办事指南（各地人社局官网，待逐地录入）
+  // online：线上申请入口；全国没有统一入口，已核实的只有重庆
+  const DEFAULT_APP_FORMAT = { copies: '正本 1 份，并按被申请人人数提交副本', copy_rule: { plus: 2, keep: 1, source: '依据呼伦贝尔样本，待核' }, template: null,
+    institution: null, mail: null, online: null, note: '格式和份数以当地仲裁委要求为准' };
   const PROVINCE_DEFAULTS = {};
   for (const p of PROVINCES) {
     PROVINCE_DEFAULTS[p.province] = { avg_wage: {}, min_wage: [], overtime_in_base: '有争议', bonus_allocation: '有争议', double_wage_limitation: '有争议', monthly_workdays: 21.75, application_format: DEFAULT_APP_FORMAT, review: '待校准' };
   }
+
+  if (PROVINCE_DEFAULTS['重庆市']) PROVINCE_DEFAULTS['重庆市'].application_format = { ...DEFAULT_APP_FORMAT,
+    online: { name: '重庆劳动人事争议仲裁线上智慧服务平台', url: 'https://ggfw.rlsbj.cq.gov.cn/cqldzc', review: '已核（律师线程校准文档 7.4）' } };
 
   // 市级覆盖：只写和省级默认不同的字段，例如 { '深圳': { avg_wage: { 2025: { value: 12345, scope: '职工平均' } } } }
   const CITY_OVERRIDES = {};

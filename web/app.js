@@ -3,7 +3,7 @@
 // 中间靠纯代码锁死确定性（金额 engine.js、流程解锁 flow.js、文书句式 flow.js）。
 // 模型读出的计算参数先进 st.pending，用户确认后才出金额；模型永远不直接给用户赔偿数字。
 (function () {
-  const { rules: R, regions: G, facts: F, engine: E, docs: D, flow: W } = window.LA;
+  const { rules: R, regions: G, facts: F, engine: E, docs: D, flow: W, procedure: P } = window.LA;
   const { createApp, reactive, computed, watch, nextTick } = Vue;
   const today = () => new Date().toISOString().slice(0, 10);
 
@@ -183,7 +183,9 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
     return {
       id: 'c' + Date.now(), updated: null, page: 'P1', facts: {}, manual: {}, uncertain: {}, pending: {}, supplements: [], evPurpose: {}, sources: {}, autoTicked: [], asks: [], archive: [], confirmed: false, userClaims: {},
       chat: [{ role: 'ai', text: GREETING }], evidence: { labor_relation: [], wage: [], termination: [] }, selected: [], recognized: [], avgWage: null, minWage: null, regAvgWage: null, regMinWage: null,
-      app: { applicant: { name: '', gender: '', id_no: '', address: '', phone: '' }, respondent: { name: '', address: '', legal_rep: '', credit_code: '' }, reasons: '', step: 1 },
+      app: { applicant: { name: '', gender: '', id_no: '', address: '', phone: '', service_address: '', email: '' }, respondent: { name: '', address: '', legal_rep: '', credit_code: '' }, reasons: '', step: 1,
+        agent: { on: false, type: 'general', name: '', id_no: '', phone: '', relation: '' } },
+      checked: {}, submission: { submitted: '', receiptNo: '', accepted: '', evidenceDeadline: '', hearing: '', awardReceived: '', finalAward: false },
     };
   }
 
@@ -191,6 +193,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
   const PAGES = [
     { id: 'P1', name: '对话' }, { id: 'P2', name: '分析' }, { id: 'P3', name: '测算' },
     { id: 'P4', name: '报告' }, { id: 'P5', name: '证据' }, { id: 'P6', name: '申请书' },
+    { id: 'P7', name: '提交包' }, { id: 'P8', name: '怎么交' }, { id: 'P9', name: '时间线' },
   ];
 
   createApp({
@@ -369,7 +372,13 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       // 用户核对后确认：模型读出的计算参数从「待确认」转为「已确认」，之后才出金额
       const pendingKeys = computed(() => W.unconfirmed(st.facts, st.pending));
       function confirmParams() { st.pending = {}; st.confirmed = true; }
-      const gate = computed(() => W.gates({ facts: st.facts, pending: st.pending, selected: st.selected, conflicts: conflicts.value, chosen: chosen.value, started: st.chat.some(m => m.role === 'user') }));
+      const gate = computed(() => {
+        const g = baseGate.value;
+        const miss = W.requiredMissing(st.app, chosen.value);
+        const lock = { open: g.P6.open && !miss.length, why: g.P6.open ? (miss.length ? ['申请书还缺：' + miss.join('、')] : []) : ['先完成上一步'] };
+        return { ...g, P7: lock, P8: lock, P9: lock };
+      });
+      const baseGate = computed(() => W.gates({ facts: st.facts, pending: st.pending, selected: st.selected, conflicts: conflicts.value, chosen: chosen.value, started: st.chat.some(m => m.role === 'user') }));
 
       function toAnalysis(confirm) {
         if (confirm === true) confirmParams();
@@ -529,6 +538,39 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
         }
         return out;
       });
+      // ---------- 行动链：能不能申请、提交包、提交指引、时间线（全部由 engine/procedure.js 的代码给出） ----------
+      const eligible = computed(() => P.eligibility({ facts: st.facts, routes: analysis.value.routes, limitation: analysis.value.limitation, today: today(), arbitration: arbitration.value }));
+      const respondents = computed(() => (st.facts.other_issues || []).includes('dispatch') ? 2 : 1);   // 劳务派遣：派遣单位和用工单位
+      const copyCount = computed(() => P.copies(appFormat.value.copy_rule, respondents.value));
+      const hasRecording = computed(() => Object.values(st.evidence).flat().some(t => /录音/.test(t)));
+      const evPages = computed(() => evItems.value.reduce((n, it) => n + ((files[it.group.group + '|' + it.tag] || []).length), 0));
+      const materialList = computed(() => P.materials({ copies: copyCount.value, hasAgent: st.app.agent.on, evidenceCount: evItems.value.length, evidencePages: evPages.value }));
+      const checkItems = computed(() => P.checklist({ copies: copyCount.value, hasAgent: st.app.agent.on, hasRecording: hasRecording.value }));
+      const events = computed(() => P.timeline(st.submission));
+      const limitNear = computed(() => eligible.value.items.some(i => i.label === '时效' && i.status === 'risk'));
+      // 回执拍照：模型只读日期和编号，写进时间线
+      function uploadReceipt() {
+        const inp = document.createElement('input');
+        inp.type = 'file'; inp.accept = imgCaps.ok ? imgCaps.accept : 'image/*';
+        inp.onchange = async () => {
+          const f = inp.files[0]; if (!f) return;
+          const sample = await samplePromise;
+          if (!sample || !imgCaps.ok) { flash('当前环境不能识别图片，请手动填写提交日期'); return; }
+          try {
+            const r = await sample.json('这是劳动仲裁委出具的收件回执或受理通知书照片。只读照片上写着的：date（收件或受理日期 YYYY-MM-DD）、number（案号或收件编号）、kind（receipt 收件回执 | accepted 受理通知）。看不清的不要输出。只输出 JSON。', { images: [f] });
+            if (r && /^\d{4}-\d{2}-\d{2}$/.test(r.date)) { if (r.kind === 'accepted') st.submission.accepted = r.date; else st.submission.submitted = r.date; }
+            if (r && r.number) st.submission.receiptNo = String(r.number);
+            flash(r && r.date ? '已读出日期，请核对' : '没读到日期，请手动填写');
+          } catch (e) { flash('识别没有成功，请手动填写'); }
+        };
+        inp.click();
+      }
+      async function saveIcs() {
+        const text = P.ics(events.value, '劳动仲裁');
+        const dl = window.claude && window.claude.use ? await window.claude.use('downloads').catch(() => null) : null;
+        if (dl) { try { await dl.save({ filename: '劳动仲裁时间线.ics', data: new Blob([text], { type: 'text/calendar' }) }); flash('已交给浏览器保存，用手机日历打开即可提醒'); return; } catch (e) { if (e && e.code === 'declined') return; } }
+        ui.exportText = text;
+      }
       // 当事人信息是否已齐（证据页传身份证、营业执照后自动填）
       const partyMissing = computed(() => W.requiredMissing(st.app, [{}]).filter(m => /^(申请人|被申请人)/.test(m)));
       const partyDone = computed(() => ({ applicant: !partyMissing.value.some(m => /^申请人(姓名|性别|身份证号|住址)$/.test(m)), respondent: !partyMissing.value.some(m => /^被申请人/.test(m)) }));
@@ -592,7 +634,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
         return `<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/>${border}</w:tblPr>` + rows.map((r, i) => '<w:tr>' + r.map(c => `<w:tc><w:p>${run(c, i === 0)}</w:p></w:tc>`).join('') + '</w:tr>').join('') + '</w:tbl>';
       }
       async function docx(blocks) {
-        const body = blocks.map(b => b.table ? table(b.table) : para(b)).join('');
+        const body = blocks.map(b => b.pageBreak ? '<w:p><w:r><w:br w:type="page"/></w:r></w:p>' : b.table ? table(b.table) : para(b)).join('');
         const zip = new JSZip();
         zip.file('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>');
         zip.file('_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>');
@@ -600,8 +642,9 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
         return zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
       }
       function evidenceDoc() {
-        const rows = [['序号', '证据名称', '证明内容', '页数']];
-        evItems.value.forEach((it, i) => rows.push([String(i + 1), it.tag, it.purpose, '']));
+        // 证据清单：序号、证据名称、证明目的、页数、备注；身份证、企业信息、送达地址确认书不列入
+        const rows = [['序号', '证据名称', '证明目的', '页数', '备注']];
+        evItems.value.forEach((it, i) => { const n = (files[it.group.group + '|' + it.tag] || []).length; rows.push([String(i + 1), it.tag, it.purpose, n ? String(n) : '', /录音/.test(it.tag) ? '附光盘及文字稿' : n ? '复印件，原件开庭出示' : '复印件待补']); });
         return [{ text: '证据目录', bold: true, size: 36, align: 'center' }, { table: rows }, { text: '' }, { label: '提交人：', text: st.app.applicant.name }, { text: today() }];
       }
       function applicationDoc() {
@@ -614,9 +657,48 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
           ...requestLines().map((l, i) => ({ text: `${i + 1}. ${l}；` })),
           { label: '事实与理由：', text: '' },
           ...st.app.reasons.split('\n').filter(Boolean).map(t => ({ text: t })),
+          { label: '证据和证据来源：', text: evItems.value.length ? `见所附证据清单（共 ${evItems.value.length} 项），均由申请人提供。` : '开庭前补充提交。' },
           { text: '此致' }, { text: arbitration.value },
-          { text: `申请人：${a.name}`, align: 'right' }, { text: today(), align: 'right' },
+          { text: '申请人（签名）：____________', align: 'right' }, { text: '____年____月____日', align: 'right' },
         ];
+      }
+      function serviceAddressDoc() {
+        const a = st.app.applicant;
+        return [
+          { text: '送达地址确认书', bold: true, size: 36, align: 'center' },
+          { table: [['当事人', a.name], ['身份证号', a.id_no], ['送达地址', a.service_address || a.address], ['收件人', a.name], ['联系电话', a.phone], ['电子邮箱', a.email || ''],
+            ['是否同意电子送达', a.email ? '同意，以上述邮箱接收' : '□ 同意  □ 不同意']] },
+          { text: '本人确认以上送达地址真实有效。仲裁委按上述地址送达的文书，即视为送达；地址变更的，本人将及时书面告知。' },
+          { text: '确认人（签名）：____________', align: 'right' }, { text: '____年____月____日', align: 'right' },
+        ];
+      }
+      function powerOfAttorneyDoc() {
+        const a = st.app.applicant, g = st.app.agent;
+        const scope = g.type === 'special' ? '特别授权：代为提出、承认、放弃、变更仲裁请求，进行调解、和解，代为陈述、举证、质证、辩论，代为签收法律文书。' : '一般代理：代为提出仲裁申请，参加仲裁活动，代为陈述、举证、质证、辩论，代为签收法律文书。';
+        return [
+          { text: '授权委托书', bold: true, size: 36, align: 'center' },
+          { label: '委托人：', text: `${a.name}，身份证号 ${a.id_no}，电话 ${a.phone}` },
+          { label: '受托人：', text: `${g.name}，身份证号 ${g.id_no}，电话 ${g.phone}，与委托人关系：${g.relation}` },
+          { text: `现委托上列受托人在申请人${a.name}与被申请人${st.app.respondent.name}劳动争议一案中，作为本人的代理人。` },
+          { label: '代理权限：', text: scope },
+          { text: '委托人（签名）：____________', align: 'right' }, { text: '____年____月____日', align: 'right' },
+        ];
+      }
+      function printListDoc() {
+        return [
+          { text: '打印与提交清单', bold: true, size: 36, align: 'center' },
+          { text: `交到：${arbitration.value}。A4 纸单面打印；每套材料左上角订一个钉。` },
+          { table: [['材料', '交仲裁委', '自留', '签名位置'], ...materialList.value.map(m => [m.name, String(m.count), String(m.keep || ''), m.sign || '—'])] },
+          { text: `份数说明：${copyCount.value.note}。各地要求不同，多交不会被拒。` },
+          { label: '开庭带原件：', text: evItems.value.map(i => i.tag).join('、') || '（还没勾选证据）' },
+          { label: '出门前自查：', text: '' },
+          ...checkItems.value.map(t => ({ text: '□ ' + t })),
+        ];
+      }
+      // 打印包：一个 Word 文件，按清单顺序分页
+      function printPackage() {
+        const parts = [printListDoc(), applicationDoc(), evidenceDoc(), serviceAddressDoc(), ...(st.app.agent.on ? [powerOfAttorneyDoc()] : [])];
+        return parts.flatMap((p, i) => i ? [{ pageBreak: true }, ...p] : p);
       }
       async function save(filename, blocks) {
         const dl = window.claude && window.claude.use ? await window.claude.use('downloads').catch(() => null) : null;
@@ -624,7 +706,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
           try { await dl.save({ filename, data: await docx(blocks) }); flash('已交给浏览器保存'); return; }
           catch (e) { if (e && (e.code === 'declined' || e.code === 'rate_limited')) return; }
         }
-        ui.exportText = blocks.map(b => b.table ? b.table.map(r => r.join('\t')).join('\n') : (b.label || '') + b.text).join('\n');
+        ui.exportText = blocks.map(b => b.pageBreak ? '\n——————————\n' : b.table ? b.table.map(r => r.join('\t')).join('\n') : (b.label || '') + (b.text || '')).join('\n');
       }
       function flash(t) { ui.toast = t; setTimeout(() => { ui.toast = ''; }, 2500); }
 
@@ -639,7 +721,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       const pct = k => totals.value.total ? (totals.value[k] / totals.value.total * 100) + '%' : '0%';
 
       return { st, ui, R, E, F, G, PAGES, model, allCities, std, stdCity, stdOrigin, imgCaps, files, upload, kindOfTag: D.kindOfTag, analysis, chosen, conflicts, totals, next, prog, factRows, evidenceGroups, arbitration,
-        answer, pick, notSure, editFact, toAnalysis, pendingKeys, confirmParams, gate, supplement, organizeEvidence, evItems, src, resolveAsk, confirmRec, guideQs, fillHint, partyMissing, partyDone, claimCheck, uploadInChat, reasonProblems, appFormat, W, toggleClaim, toggleEvidence, go, newCase, openCase, appNext, exportApp, draft, requestLines,
+        answer, pick, notSure, editFact, toAnalysis, pendingKeys, confirmParams, gate, supplement, organizeEvidence, evItems, src, resolveAsk, confirmRec, guideQs, fillHint, partyMissing, partyDone, claimCheck, uploadInChat, eligible, copyCount, materialList, checkItems, events, limitNear, uploadReceipt, saveIcs, serviceAddressDoc, powerOfAttorneyDoc, printListDoc, printPackage, hasRecording, reasonProblems, appFormat, W, toggleClaim, toggleEvidence, go, newCase, openCase, appNext, exportApp, draft, requestLines,
         save, evidenceDoc, applicationDoc, examples, useExample, fillSample, tierClass, statusClass, pct, display, labelOf, today };
     },
   }).mount('#app');

@@ -57,6 +57,8 @@ h3 { font-size: 15px; margin: 0; }
 .btn:disabled { opacity: .5; cursor: default; }
 .btn.block { width: 100%; }
 .src { color: var(--muted, #888); font-size: 11px; font-weight: normal; }
+.check { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; }
+.check input { margin-top: 3px; flex: none; }
 .ask { border: 1px solid var(--need, #b7791f); }
 .chip { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 4px 12px; font-size: 13px; }
 .chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
@@ -223,6 +225,12 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
 
     <!-- P2 法律分析与诉求选择 -->
     <template v-if="st.page === 'P2'">
+      <!-- ① 能不能申请：结论放最前，判断由代码给出 -->
+      <section class="card stack" id="eligibility">
+        <h2>{{ { ok: '可以申请劳动仲裁', risk: '可以申请，但有几点要注意', route: '部分事项不走仲裁' }[eligible.level] }}</h2>
+        <div v-for="i in eligible.items" :key="i.label" class="calc-line"><b :class="{ ok: 'ok', risk: 'need', route: 'no', info: 'partial' }[i.status]">{{ { ok: '✓', risk: '!', route: '→', info: '·' }[i.status] }} {{ i.label }}</b><span class="formula">{{ i.note }}</span></div>
+        <p class="sub">劳动仲裁不收费，也不是必须先调解，可以直接申请（调解仲裁法第 5、53 条）。</p>
+      </section>
       <div v-if="analysis.limitation" :class="analysis.limitation.expired ? 'danger' : 'warn'">
         <template v-if="!analysis.limitation.expired">仲裁时效：距离离职已过 {{ analysis.limitation.days }} 天，一般需在 {{ analysis.limitation.deadline }} 前申请。</template>
         <template v-else>距离离职已过 {{ analysis.limitation.days }} 天，超过了一年的仲裁时效。仍可以申请，但公司可能提出时效抗辩；如果向公司讨要过、向有关部门求助过，这些记录能中断时效，请保留。</template>
@@ -447,11 +455,23 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
           <label class="f">身份证号 <small class="src">{{ src('applicant.id_no') }}</small><input id="a-id" v-model="st.app.applicant.id_no"></label>
           <label class="f">住址 <small class="src">{{ src('applicant.address') }}</small><input id="a-addr" v-model="st.app.applicant.address"></label>
           <label class="f">电话 <small class="src">{{ src('applicant.phone') }}</small><input id="a-phone" v-model="st.app.applicant.phone"></label>
+          <label class="f">送达地址（仲裁文书寄到哪）<input id="a-service" v-model="st.app.applicant.service_address" :placeholder="st.app.applicant.address ? '不填就用住址：' + st.app.applicant.address : '能稳定收到邮件的地址'"></label>
+          <label class="f">电子邮箱（选填，用于电子送达）<input id="a-email" v-model="st.app.applicant.email"></label>
           <h3>被申请人（公司）</h3>
-          <label class="f">名称 <small class="src">{{ src('respondent.name') }}</small><input id="r-name" v-model="st.app.respondent.name"></label>
+          <label class="f">名称（工商登记全称） <small class="src">{{ src('respondent.name') }}</small><input id="r-name" v-model="st.app.respondent.name"></label>
+          <p class="sub">要写工商登记的全称，不写老板个人。不确定的话，到「国家企业信用信息公示系统」www.gsxt.gov.cn 搜公司名核对，顺便打印「基础信息」页，提交时要用。</p>
           <label class="f">住所 <small class="src">{{ src('respondent.address') }}</small><input id="r-addr" v-model="st.app.respondent.address"></label>
           <label class="f">法定代表人 <small class="src">{{ src('respondent.legal_rep') }}</small><input id="r-rep" v-model="st.app.respondent.legal_rep"></label>
           <label class="f">统一社会信用代码（选填） <small class="src">{{ src('respondent.credit_code') }}</small><input id="r-code" v-model="st.app.respondent.credit_code"></label>
+          <label class="check"><input id="agent-on" type="checkbox" v-model="st.app.agent.on"> 委托别人代我办（会多生成一份授权委托书）</label>
+          <template v-if="st.app.agent.on">
+            <label class="f">代理权限<select v-model="st.app.agent.type"><option value="general">一般代理：代为申请、陈述、举证、签收文书</option><option value="special">特别授权：还可以代为承认、放弃、变更请求，调解和解</option></select></label>
+            <label class="f">代理人姓名<input v-model="st.app.agent.name"></label>
+            <label class="f">代理人身份证号<input v-model="st.app.agent.id_no"></label>
+            <label class="f">代理人电话<input v-model="st.app.agent.phone"></label>
+            <label class="f">和你的关系<input v-model="st.app.agent.relation" placeholder="如：配偶、律师"></label>
+            <p class="sub">律师代理的还需要律所公函。</p>
+          </template>
         </template>
         <template v-if="st.app.step === 2">
           <ol class="path"><li v-for="l in requestLines()">{{ l }}</li></ol>
@@ -469,9 +489,84 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
           <button v-else class="btn grow" @click="exportApp">导出申请书（Word）</button>
         </div>
       </section>
-      <section v-if="st.app.step === 3" class="card stack">
-        <h3>提交指引</h3>
-        <p class="sub">交到：{{ arbitration }}。申请书{{ appFormat.copies || '正本 1 份，并按被申请人人数提交副本' }}，另附身份证复印件、证据材料复印件。证据要写明来源，有证人的写明姓名和住所。{{ appFormat.note || '格式和份数以当地仲裁委要求为准' }}。</p>
+      <button v-if="st.app.step === 3" id="to-package" class="btn block" @click="go('P7')">申请书没问题，生成整套提交材料 →</button>
+    </template>
+
+    <!-- P7 提交包：整套材料、份数、签名位置、原件清单 -->
+    <template v-if="st.page === 'P7'">
+      <div v-if="limitNear" class="danger">时效快到了：先把申请书交上去保住时效，证据可以之后补交。</div>
+      <section class="card stack">
+        <h2>提交材料已经备好</h2>
+        <p class="sub">交到 {{ arbitration }}。下面每样材料打几份、哪里签名都写好了，按清单打印就行。份数{{ copyCount.note }}，各地要求不同，多交不会被拒。</p>
+        <div v-for="m in materialList" :key="m.id" class="calc-line">
+          <div class="row"><b class="grow">{{ m.name }}</b><span class="amount" style="font-size:15px">交 {{ m.count }} 份{{ m.keep ? '，自留 ' + m.keep : '' }}</span></div>
+          <span class="formula">{{ m.prepare }}{{ m.sign ? '；' + m.sign : '' }}</span>
+          <span class="formula">{{ m.legal }}</span>
+        </div>
+        <button id="dl-package" class="btn block" @click="save('劳动仲裁打印包.docx', printPackage())">下载打印包（Word，一个文件按顺序排好）</button>
+        <div class="row">
+          <button class="btn plain" @click="save('劳动人事争议仲裁申请书.docx', applicationDoc())">只下申请书</button>
+          <button class="btn plain" @click="save('证据清单.docx', evidenceDoc())">只下证据清单</button>
+          <button class="btn plain" @click="save('送达地址确认书.docx', serviceAddressDoc())">只下送达地址确认书</button>
+          <button v-if="st.app.agent.on" class="btn plain" @click="save('授权委托书.docx', powerOfAttorneyDoc())">只下授权委托书</button>
+        </div>
+        <p class="sub">打印包里依次是：打印与提交清单、申请书、证据清单、送达地址确认书{{ st.app.agent.on ? '、授权委托书' : '' }}。证据复印件和身份证复印件用你上传的照片直接打印，按证据清单的顺序排好、每页右下角写页码。{{ hasRecording ? '录音证据要刻光盘或存 U 盘，并附文字稿。' : '' }}</p>
+      </section>
+      <section class="card stack">
+        <h3>开庭时要带的原件</h3>
+        <p class="sub">{{ evItems.map(i => i.tag).join('、') || '还没勾选证据' }}。原件自己保管，提交时只交复印件。</p>
+      </section>
+      <button class="btn block" @click="go('P8')">怎么提交 →</button>
+    </template>
+
+    <!-- P8 提交指引 -->
+    <template v-if="st.page === 'P8'">
+      <div v-if="limitNear" class="danger">时效快到了：先提交保住时效，证据可以之后补。</div>
+      <section class="card stack">
+        <h2>去哪里交</h2>
+        <p><b>{{ appFormat.institution && appFormat.institution.name || arbitration }}</b></p>
+        <p class="sub" v-if="appFormat.institution">地址：{{ appFormat.institution.address }}　电话：{{ appFormat.institution.phone }}</p>
+        <p class="sub" v-else>窗口地址和电话还没录入（待核）。可以拨打 12333 问「{{ st.facts.city }}劳动仲裁在哪里交」，或搜索当地人社局官网的「劳动人事争议仲裁办事指南」。市级和区县级仲裁委怎么分工各地不同，电话里一并问清。</p>
+        <p class="sub">工作地和公司所在地的仲裁委都可以受理；默认推荐工作地。</p>
+      </section>
+      <section class="card stack">
+        <h2>三种提交方式</h2>
+        <div class="calc-line"><b>现场提交（最稳妥）</b><span class="formula">带上打印好的整套材料和身份证原件，到窗口递交。<b>一定要索要收件回执</b>并拍照：材料不齐的，仲裁委会当场或 5 个工作日内一次性告诉你要补什么（办案规则第 29 条）。</span></div>
+        <div class="calc-line"><b>邮寄</b><span class="formula">{{ appFormat.mail ? '邮寄地址：' + appFormat.mail : '当地是否接受邮寄、寄到哪里，待核，寄之前先打电话确认。' }}建议用 EMS 并保留单号。</span></div>
+        <div class="calc-line"><b>线上</b><span class="formula" v-if="appFormat.online">{{ appFormat.online.name }}：<a :href="appFormat.online.url" target="_blank" rel="noopener">{{ appFormat.online.url }}</a>。按页面提示逐项上传：申请书、证据清单、证据照片、身份证正反面。</span><span class="formula" v-else>全国没有统一的线上仲裁入口，当地线上渠道待核。人社部的在线调解平台只办调解，不办仲裁申请。</span></div>
+      </section>
+      <section class="card stack">
+        <h2>出门前自查</h2>
+        <label v-for="(t, i) in checkItems" :key="i" class="check"><input type="checkbox" :checked="st.checked[t]" @change="e => st.checked[t] = e.target.checked"> {{ t }}</label>
+      </section>
+      <section class="card stack">
+        <h2>交完了</h2>
+        <p class="sub">拍一下收件回执，我读出日期和编号，开始帮你盯后面的时间。</p>
+        <div class="row"><button id="receipt-upload" class="btn ghost" @click="uploadReceipt">拍回执</button><label class="f grow">提交日期<input id="sub-date" type="date" v-model="st.submission.submitted"></label></div>
+        <label class="f">收件编号或案号（选填）<input v-model="st.submission.receiptNo"></label>
+        <button class="btn block" :disabled="!st.submission.submitted" @click="go('P9')">看后面的时间线 →</button>
+      </section>
+    </template>
+
+    <!-- P9 案件时间线：节点日期由代码算 -->
+    <template v-if="st.page === 'P9'">
+      <section class="card stack">
+        <h2>案件时间线</h2>
+        <p class="sub">每收到一份通知，把上面的日期填进来，后面的期限会重新算。工作日只跳过周末，法定节假日调休没算，以通知书为准。</p>
+        <div class="params">
+          <label class="f">提交日期<input type="date" v-model="st.submission.submitted"></label>
+          <label class="f">受理日期（受理通知书上）<input id="t-accepted" type="date" v-model="st.submission.accepted"></label>
+          <label class="f">举证期限（受理通知书上）<input type="date" v-model="st.submission.evidenceDeadline"></label>
+          <label class="f">开庭日期（开庭通知上）<input id="t-hearing" type="date" v-model="st.submission.hearing"></label>
+          <label class="f">收到裁决书的日期<input type="date" v-model="st.submission.awardReceived"></label>
+          <label class="check"><input type="checkbox" v-model="st.submission.finalAward"> 裁决书写明是终局裁决</label>
+        </div>
+      </section>
+      <section class="card stack">
+        <p v-if="!events.length" class="sub">先填提交日期。</p>
+        <ol class="path"><li v-for="e in events" :key="e.key"><b>{{ e.date || '待定' }} · {{ e.title }}</b><small>{{ e.note }}（{{ e.law }}）</small></li></ol>
+        <button v-if="events.length" id="dl-ics" class="btn ghost block" @click="saveIcs">下载到手机日历（提前一天提醒）</button>
+        <p class="sub">整个仲裁不收费。调解书双方签收即生效；签之前确认金额和付款时间写清楚。</p>
       </section>
     </template>
 
@@ -493,4 +588,5 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
 <script src="engine/engine.js"></script>
 <script src="engine/docs.js"></script>
 <script src="engine/flow.js"></script>
+<script src="engine/procedure.js"></script>
 <script src="web/app.js"></script>
