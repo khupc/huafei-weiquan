@@ -162,6 +162,7 @@
     monthly_overtime: { label: '月工资里每月加班费（选填）', type: 'number' },
     company_city: { label: '公司注册地城市', type: 'text' },
     district: { label: '工作地所在区县', type: 'text' },
+    city_level: { label: '是否归市级仲裁委', type: 'text' },
     filing_date: { label: '预计申请仲裁日（算时效用，默认今天）', type: 'date' },
   };
 

@@ -27,7 +27,7 @@ test('互斥未处理时不能进测算', () => {
 });
 
 test('申请书法定必填项：法定代表人必填', () => {
-  const app = { applicant: { name: '张三', gender: '男', id_no: '1', address: 'x', phone: '1' }, respondent: { name: '某公司', address: 'y', legal_rep: '' }, reasons: '事实' };
+  const app = { applicant: { name: '张三', gender: '男', id_no: '1', address: 'x', phone: '1' }, respondent: { name: '某公司', address: 'y', legal_rep: '', legal_rep_title: '执行董事' }, reasons: '事实' };
   assert.deepStrictEqual(W.requiredMissing(app, [{ id: 'unpaid_wages' }]), ['被申请人法定代表人']);
 });
 
@@ -118,4 +118,13 @@ test('按月说的欠薪：代码算合计，不再追问', () => {
   assert.strictEqual(F.derive({ wages_owed_detail: [{ month: '2026-08', amount: 3000 }, { month: '2026-09', amount: '5000' }] }).wages_owed_amount, 8000);
   assert.strictEqual(F.derive({ wages_owed_months: 2, monthly_wage: 8000 }).wages_owed_amount, 16000);
   assert.strictEqual(F.keywordExtract('一共欠了2万块工资', '2026-11-22').wages_owed_amount, 20000);
+});
+
+test('身份证号推出生日期和性别；北京加项只算建议填', () => {
+  assert.deepStrictEqual(W.fromIdNo('320500199001011234'), { birth: '1990-01-01', gender: '男' });
+  assert.deepStrictEqual(W.fromIdNo('32050019900101122X'), { birth: '1990-01-01', gender: '女' });
+  assert.deepStrictEqual(W.fromIdNo('123'), {});
+  const app = { applicant: { ethnicity: '汉' }, respondent: {} };
+  assert.ok(W.suggestedMissing(app).includes('户口性质'));
+  assert.ok(!W.suggestedMissing(app).includes('民族'));
 });

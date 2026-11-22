@@ -38,8 +38,24 @@
   // 申请书法定必填项（调解仲裁法第 28 条），缺了不能导出
   const REQUIRED = {
     applicant: { name: '申请人姓名', gender: '申请人性别', id_no: '申请人身份证号', address: '申请人住址', phone: '申请人电话' },
-    respondent: { name: '被申请人名称', address: '被申请人住所', legal_rep: '被申请人法定代表人' },
+    respondent: { name: '被申请人名称', address: '被申请人住所', legal_rep: '被申请人法定代表人', legal_rep_title: '法定代表人职务' },
   };
+  // 北京模板的加项：缺了标「建议填」，不锁（律师线程：北京模板作全国底版）
+  const SUGGESTED = {
+    applicant: { ethnicity: '民族', birth: '出生日期', hukou: '户口性质' },
+    respondent: { company_type: '企业性质', office_address: '办公地或经营地', contact: '单位联系人', contact_title: '联系人部门及职务', phone: '单位联系电话' },
+  };
+  function suggestedMissing(app) {
+    const miss = [];
+    for (const role of ['applicant', 'respondent']) for (const [k, label] of Object.entries(SUGGESTED[role])) if (!String(app[role][k] || '').trim()) miss.push(label);
+    return miss;
+  }
+  // 身份证号推出生日期和性别（纯代码）
+  function fromIdNo(id) {
+    const m = String(id || '').match(/^\d{6}(\d{4})(\d{2})(\d{2})\d{2}(\d)[\dXx]$/);
+    if (!m) return {};
+    return { birth: `${m[1]}-${m[2]}-${m[3]}`, gender: +m[4] % 2 ? '男' : '女' };
+  }
   function requiredMissing(app, chosen) {
     const miss = [];
     for (const role of ['applicant', 'respondent']) for (const [k, label] of Object.entries(REQUIRED[role])) if (!String(app[role][k] || '').trim()) miss.push(label);
@@ -103,7 +119,7 @@
     };
   }
 
-  const api = { CALC_KEYS, unconfirmed, gates, REQUIRED, requiredMissing, requestLines, checkReasons, buildRecord, redactMoney };
+  const api = { CALC_KEYS, unconfirmed, gates, REQUIRED, requiredMissing, requestLines, checkReasons, buildRecord, redactMoney, SUGGESTED, suggestedMissing, fromIdNo };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.LA = Object.assign(root.LA || {}, { flow: api });
 })(this);

@@ -5,8 +5,8 @@
   // 每类材料要读的字段
   const KINDS = {
     contract: { title: '劳动合同', fields: ['company_name', 'company_address', 'legal_rep', 'credit_code', 'applicant_name', 'applicant_id_no', 'applicant_address', 'applicant_phone', 'start_date', 'monthly_wage'] },
-    id_card: { title: '身份证', fields: ['applicant_name', 'applicant_gender', 'applicant_id_no', 'applicant_address'] },
-    license: { title: '营业执照', fields: ['company_name', 'company_address', 'legal_rep', 'credit_code'] },
+    id_card: { title: '身份证', fields: ['applicant_name', 'applicant_gender', 'applicant_ethnicity', 'applicant_id_no', 'applicant_address'] },
+    license: { title: '营业执照', fields: ['company_name', 'company_type', 'company_address', 'legal_rep', 'credit_code'] },
     termination: { title: '解除通知', fields: ['company_name', 'end_date', 'termination_reason_text'] },
     wage: { title: '工资记录', fields: ['company_name', 'months', 'applicant_name'] },
     social: { title: '社保记录', fields: ['company_name', 'applicant_name', 'applicant_id_no', 'start_date'] },
@@ -26,7 +26,7 @@
 
   const FIELD_DESC = {
     company_name: '用人单位全称', company_address: '用人单位住所/地址', legal_rep: '法定代表人姓名', credit_code: '统一社会信用代码（18 位）',
-    applicant_name: '劳动者姓名', applicant_gender: '劳动者性别（男/女）', applicant_id_no: '劳动者身份证号', applicant_address: '劳动者住址', applicant_phone: '劳动者联系电话',
+    applicant_name: '劳动者姓名', applicant_gender: '劳动者性别（男/女）', applicant_id_no: '劳动者身份证号', applicant_address: '劳动者住址', applicant_ethnicity: '民族（如 汉）', company_type: '企业类型（营业执照上的「类型」，如 有限责任公司）', applicant_phone: '劳动者联系电话',
     start_date: '入职或合同起始日期 YYYY-MM-DD', end_date: '解除或离职日期 YYYY-MM-DD', monthly_wage: '月工资（数字，元，税前应发）',
     months: '逐月工资，数组 [{"month":"YYYY-MM","gross":应发数字,"net":实发数字}]；只列照片上看得到的月份，看不清的数字不要写',
     termination_reason_text: '单位写明的解除理由（原文摘录，30 字以内）',
@@ -79,7 +79,7 @@ ${k.fields.map(f => `${f}: ${FIELD_DESC[f]}`).join('\n')}
     const src = (path) => { if (state.sources && source) state.sources[path] = source; };
     const newRank = rank(source || (OFFICIAL.includes(kind) ? KINDS[kind].title : '材料照片'));
     const filled = [], conflicts = [], asks = [], wrote = [];
-    const label = { company_name: '公司名称', company_address: '公司住所', legal_rep: '法定代表人', credit_code: '统一社会信用代码', applicant_name: '姓名', applicant_gender: '性别', applicant_id_no: '身份证号', applicant_address: '住址', applicant_phone: '电话', start_date: '入职日期', end_date: '离职日期', monthly_wage: '月工资', signed_contract: '是否签劳动合同', termination_form: '辞退方式' };
+    const label = { company_name: '公司名称', company_address: '公司住所', legal_rep: '法定代表人', credit_code: '统一社会信用代码', applicant_name: '姓名', applicant_gender: '性别', applicant_id_no: '身份证号', applicant_address: '住址', applicant_phone: '电话', applicant_ethnicity: '民族', company_type: '企业性质', start_date: '入职日期', end_date: '离职日期', monthly_wage: '月工资', signed_contract: '是否签劳动合同', termination_form: '辞退方式' };
     // 当事人信息：不影响结论，按优先级自动取值并标来源
     const put = (obj, key, field, v) => {
       if (!v) return;
@@ -103,6 +103,8 @@ ${k.fields.map(f => `${f}: ${FIELD_DESC[f]}`).join('\n')}
     put(state.respondent, 'address', 'company_address', d.company_address);
     put(state.respondent, 'legal_rep', 'legal_rep', d.legal_rep);
     put(state.respondent, 'credit_code', 'credit_code', d.credit_code);
+    put(state.respondent, 'company_type', 'company_type', d.company_type);
+    put(state.applicant, 'ethnicity', 'applicant_ethnicity', d.applicant_ethnicity);
     put(state.applicant, 'name', 'applicant_name', d.applicant_name);
     put(state.applicant, 'gender', 'applicant_gender', ['男', '女'].includes(d.applicant_gender) ? d.applicant_gender : null);
     put(state.applicant, 'id_no', 'applicant_id_no', d.applicant_id_no);

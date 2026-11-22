@@ -183,8 +183,9 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
     return {
       id: 'c' + Date.now(), updated: null, page: 'P1', facts: {}, manual: {}, uncertain: {}, pending: {}, supplements: [], evPurpose: {}, sources: {}, autoTicked: [], asks: [], archive: [], confirmed: false, userClaims: {},
       chat: [{ role: 'ai', text: GREETING }], evidence: { labor_relation: [], wage: [], termination: [] }, selected: [], recognized: [], avgWage: null, minWage: null, regAvgWage: null, regMinWage: null,
-      app: { applicant: { name: '', gender: '', id_no: '', address: '', phone: '', service_address: '', email: '' }, respondent: { name: '', address: '', legal_rep: '', credit_code: '' }, reasons: '', step: 1,
-        agent: { on: false, type: 'general', name: '', id_no: '', phone: '', relation: '', term: '至本案仲裁程序终结' } },
+      app: { applicant: { name: '', gender: '', ethnicity: '', birth: '', hukou: '', id_type: '居民身份证', id_no: '', address: '', phone: '', service_address: '', email: '' },
+        respondent: { name: '', company_type: '', credit_code: '', legal_rep: '', legal_rep_title: '', address: '', office_address: '', contact: '', contact_title: '', phone: '' }, reasons: '', step: 1,
+        agent: { on: false, type: 'general', name: '', gender: '', age: '', work: '', residence: '', phone: '' } },
       checked: {}, submission: { submitted: '', receiptNo: '', accepted: '', evidenceDeadline: '', hearing: '', awardReceived: '', finalAward: false },
     };
   }
@@ -234,11 +235,16 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       const districtName = d => d === '经开区' ? '北京经济技术开发区劳动人事争议仲裁委员会' : `${st.facts.city}市${d}区劳动人事争议仲裁委员会`;
       const arbitration = computed(() => {
         if (!st.facts.city) return '';
-        const ds = (std.value && std.value.application_format || {}).districts;
+        const fmt = std.value && std.value.application_format || {}, ds = fmt.districts;
+        if (fmt.triage && st.facts.city_level === 'yes') return fmt.triage.yes.name;
         if (ds && st.facts.district && st.facts.district in ds) return districtName(st.facts.district);
         return `${st.facts.city}${/市|州|盟|地区|林区$/.test(st.facts.city) ? '' : '市'}劳动人事争议仲裁委员会`;
       });
-      const institution = computed(() => { const f = std.value && std.value.application_format || {}; return f.districts && st.facts.district ? f.districts[st.facts.district] : f.institution; });
+      const institution = computed(() => {
+        const f = std.value && std.value.application_format || {};
+        if (f.triage && st.facts.city_level === 'yes') return f.triage.yes;
+        return f.districts && st.facts.district ? f.districts[st.facts.district] : f.institution;
+      });
       // 区县：从对话或公司住所里认出来（工作地优先，用户可在提交指引页改）
       watch(() => [st.facts.city, st.app.respondent.address, st.chat.length], () => {
         const ds = (std.value && std.value.application_format || {}).districts;
@@ -624,6 +630,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       // 当事人信息是否已齐（证据页传身份证、营业执照后自动填）
       const partyMissing = computed(() => W.requiredMissing(st.app, [{}]).filter(m => /^(申请人|被申请人)/.test(m)));
       const partyDone = computed(() => ({ applicant: !partyMissing.value.some(m => /^申请人(姓名|性别|身份证号|住址)$/.test(m)), respondent: !partyMissing.value.some(m => /^被申请人/.test(m)) }));
+      const suggestMiss = computed(() => W.suggestedMissing(st.app));
       // 补正引导问题：来自报告里「对方可能怎么说」，只帮用户想起来，不要求逐条回答
       const guideQs = computed(() => chosen.value.flatMap(c => c.defenses).slice(0, 4).map(d => `对方可能说「${d.says}」，当时是什么情况？`));
       // 申请书缺项时，告诉用户哪份材料能自动补上
@@ -664,6 +671,11 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
         st.app.reasons = await draftReasons(st, chosen.value, record.value, evItems.value.map(i => i.tag));
         ui.busy = false;
       }
+      // 身份证号推出生日期和性别（纯代码，已填的不覆盖）
+      watch(() => st.app.applicant.id_no, id => {
+        const r = W.fromIdNo(id);
+        for (const k of ['birth', 'gender']) if (r[k] && !st.app.applicant[k]) { st.app.applicant[k] = r[k]; st.sources['applicant.' + k] = '按身份证号推算'; }
+      }, { immediate: true });
       // 对话里说的公司名称随时同步到被申请人名称（已填的不覆盖）
       watch(() => st.facts.company_name, n => { if (n && !st.app.respondent.name) { st.app.respondent.name = n; st.sources['respondent.name'] = st.sources.company_name || '你在对话里说的'; } }, { immediate: true });
       const src = path => st.sources[path] ? '来自' + st.sources[path] : '';
@@ -679,12 +691,12 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
         const jc = b.align ? `<w:jc w:val="${b.align}"/>` : '';
         return `<w:p><w:pPr>${jc}<w:spacing w:line="400" w:lineRule="auto"/></w:pPr>${b.label ? run(b.label, true) : ''}${run(b.text, b.bold, b.size)}</w:p>`;
       }
-      function table(rows) {
+      function table(rows, plain) {
         const border = '<w:tblBorders>' + ['top', 'left', 'bottom', 'right', 'insideH', 'insideV'].map(e => `<w:${e} w:val="single" w:sz="4" w:color="000000"/>`).join('') + '</w:tblBorders>';
-        return `<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/>${border}</w:tblPr>` + rows.map((r, i) => '<w:tr>' + r.map(c => `<w:tc><w:p>${run(c, i === 0)}</w:p></w:tc>`).join('') + '</w:tr>').join('') + '</w:tbl>';
+        return `<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/>${border}</w:tblPr>` + rows.map((r, i) => '<w:tr>' + r.map(c => `<w:tc><w:p>${run(c, !plain && i === 0)}</w:p></w:tc>`).join('') + '</w:tr>').join('') + '</w:tbl>';
       }
       async function docx(blocks) {
-        const body = blocks.map(b => b.pageBreak ? '<w:p><w:r><w:br w:type="page"/></w:r></w:p>' : b.table ? table(b.table) : para(b)).join('');
+        const body = blocks.map(b => b.pageBreak ? '<w:p><w:r><w:br w:type="page"/></w:r></w:p>' : b.table ? table(b.table, b.plain) : para(b)).join('');
         const zip = new JSZip();
         zip.file('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>');
         zip.file('_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>');
@@ -697,19 +709,30 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
         evItems.value.forEach((it, i) => { const n = (files[it.group.group + '|' + it.tag] || []).length; rows.push([String(i + 1), it.tag, it.purpose, n ? String(n) : '', /录音/.test(it.tag) ? '附光盘及文字稿' : n ? '复印件，原件开庭出示' : '复印件待补']); });
         return [{ text: '证据目录', bold: true, size: 36, align: 'center' }, { table: rows }, { text: '' }, { label: '提交人：', text: st.app.applicant.name }, { text: today() }];
       }
+      // 申请书：北京官方模板作全国底版（律师线程）。抬头按管辖结果自动填仲裁委；双方信息表；请求事项；事实和理由；附证据材料清单
       function applicationDoc() {
-        const a = st.app.applicant, r = st.app.respondent;
+        const a = st.app.applicant, r = st.app.respondent, f = st.facts;
+        const signed = { yes: '是', later: `是（${f.contract_signed_date || ''}补签）`, no: '否' }[f.signed_contract] || '';
+        const place = [f.city, f.district && (f.district === '经开区' ? '经济技术开发区' : f.district + '区')].filter(Boolean).join('');
+        const rows = [
+          ['申请人', '', '被申请人', ''],
+          ['姓名', a.name, '单位名称', r.name], ['性别', a.gender, '企业性质', r.company_type], ['民族', a.ethnicity, '统一社会信用代码', r.credit_code],
+          ['出生日期', a.birth, '法定代表人（负责人）姓名', r.legal_rep], ['通讯地址', a.service_address || a.address, '职务', r.legal_rep_title],
+          ['户口性质', a.hukou, '住所地', r.address], ['身份证件类型', a.id_type || '居民身份证', '劳动合同履行地', place], ['身份证件号码', a.id_no, '是否签合同', signed],
+          ['联系电话', a.phone, '办公地或经营地', r.office_address], ['', '', '单位联系人', r.contact], ['', '', '部门及职务', r.contact_title], ['', '', '联系电话', r.phone],
+        ];
         return [
           { text: '劳动人事争议仲裁申请书', bold: true, size: 36, align: 'center' },
-          { label: '申请人：', text: `${a.name}，${a.gender}，身份证号 ${a.id_no}，住址 ${a.address}，电话 ${a.phone}` },
-          { label: '被申请人：', text: `${r.name}，住所 ${r.address}，法定代表人 ${r.legal_rep || '（待补）'}，统一社会信用代码 ${r.credit_code || '（待补）'}` },
-          { label: '仲裁请求：', text: '' },
+          { text: `${arbitration.value}：` },
+          { table: rows, plain: true },
+          { label: '请求事项：', text: '' },
           ...requestLines().map((l, i) => ({ text: `${i + 1}. ${l}；` })),
-          { label: '事实与理由：', text: '' },
+          { label: '事实和理由：', text: '' },
           ...st.app.reasons.split('\n').filter(Boolean).map(t => ({ text: t })),
-          { label: '证据和证据来源：', text: evItems.value.length ? `见所附证据清单（共 ${evItems.value.length} 项），均由申请人提供。` : '开庭前补充提交。' },
-          { text: '此致' }, { text: arbitration.value },
-          { text: '申请人（签名）：____________', align: 'right' }, { text: '____年____月____日', align: 'right' },
+          { label: '证据和证据来源：', text: evItems.value.length ? `见所附证据材料清单（共 ${evItems.value.length} 项），均由申请人提供；无证人。` : '开庭前补充提交。' },
+          { text: '申请人（签名或盖章）：____________', align: 'right' }, { text: '____年____月____日', align: 'right' },
+          { text: `附：证据材料清单（第____页）` },
+          ...(appFormat.value.print_note ? [{ text: '注：' + appFormat.value.print_note }] : []),
         ];
       }
       function serviceAddressDoc() {
@@ -722,20 +745,23 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
           { text: '确认人（签名）：____________', align: 'right' }, { text: '____年____月____日', align: 'right' },
         ];
       }
+      // 授权委托书：北京官方模板（一般代理 / 特别代理二选一勾选）
       function powerOfAttorneyDoc() {
         const a = st.app.applicant, g = st.app.agent;
-        // 权限措辞按律师线程（呼伦贝尔官方模板与仲裁实务）；不写「提起诉讼」，起诉另行委托
-        const general = '代为参加仲裁活动，代为提交、签收仲裁文书，陈述事实，提交证据，质证，辩论';
-        const scope = g.type === 'special' ? `特别授权：${general}；并代为承认、放弃、变更、增加仲裁请求，代为进行和解、调解，代为签收调解书、裁决书。` : `一般代理：${general}。`;
+        const box = on => on ? '☑' : '□';
         return [
-          { text: '授权委托书', bold: true, size: 36, align: 'center' },
-          { label: '委托人：', text: `${a.name}，身份证号 ${a.id_no}，电话 ${a.phone}` },
-          { label: '受托人：', text: `${g.name}，身份证号 ${g.id_no}，电话 ${g.phone}，与委托人关系：${g.relation}` },
-          { text: `现委托上列受托人在申请人${a.name}与被申请人${st.app.respondent.name}劳动争议一案中，作为本人的代理人。` },
-          { label: '代理权限：', text: scope },
-          { label: '委托期限：', text: g.term || '至本案仲裁程序终结' },
-          { text: '注：委托代理人代为承认、放弃、变更仲裁请求，进行调解、和解，必须有委托人的特别授权。' },
-          { text: '委托人（签名）：____________', align: 'right' }, { text: '____年____月____日', align: 'right' },
+          { text: '授 权 委 托 书', bold: true, size: 36, align: 'center' },
+          { text: `${arbitration.value}：` },
+          { text: `你委受理的关于${a.name}与${st.app.respondent.name}的劳动（人事）争议一案，依照法律规定，现委托${g.name}为我的代理人，参加本案仲裁活动。` },
+          { label: '委托代理人：', text: '' },
+          { text: `姓名：${g.name}　性别：${g.gender}　年龄：${g.age}` },
+          { text: `工作单位及职务：${g.work}` }, { text: `经常居住地：${g.residence}` }, { text: `联系电话：${g.phone}` },
+          { text: '委托事项和代理权限如下（请在以下两项中选择其一进行勾选）：' },
+          { text: `${box(g.type !== 'special')} 1.一般代理：代为提出仲裁申请、提交证据材料、申请回避、参加仲裁庭审活动、签署相关法律文书及庭审笔录等。` },
+          { text: `${box(g.type === 'special')} 2.特别代理：除享有一般代理权外，可另代为承认、放弃、变更仲裁请求，进行和解，提起反申请。` },
+          { text: '委托代理人在委托权限范围内签署的有关文书我方均予以承认，并承担法律责任。' },
+          { text: '委托人（签名或盖章）：____________　　委托代理人（签名或盖章）：____________' },
+          { text: '____年____月____日　　　　　　　　____年____月____日' },
         ];
       }
       function printListDoc() {
@@ -775,7 +801,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       const pct = k => totals.value.total ? (totals.value[k] / totals.value.total * 100) + '%' : '0%';
 
       return { st, ui, R, E, F, G, PAGES, model, allCities, std, stdCity, stdOrigin, imgCaps, files, upload, kindOfTag: D.kindOfTag, analysis, chosen, conflicts, totals, next, prog, factRows, evidenceGroups, arbitration,
-        answer, pick, notSure, editFact, toAnalysis, pendingKeys, confirmParams, gate, supplement, organizeEvidence, evItems, src, resolveAsk, confirmRec, guideQs, fillHint, partyMissing, partyDone, claimCheck, uploadInChat, eligible, institution, platformSteps, copyText, saveEvidenceZip, copyCount, materialList, checkItems, events, limitNear, uploadReceipt, saveIcs, serviceAddressDoc, powerOfAttorneyDoc, printListDoc, printPackage, hasRecording, reasonProblems, appFormat, W, toggleClaim, toggleEvidence, go, newCase, openCase, appNext, exportApp, draft, requestLines,
+        answer, pick, notSure, editFact, toAnalysis, pendingKeys, confirmParams, gate, supplement, organizeEvidence, evItems, src, resolveAsk, confirmRec, guideQs, fillHint, suggestMiss, partyMissing, partyDone, claimCheck, uploadInChat, eligible, institution, platformSteps, copyText, saveEvidenceZip, copyCount, materialList, checkItems, events, limitNear, uploadReceipt, saveIcs, serviceAddressDoc, powerOfAttorneyDoc, printListDoc, printPackage, hasRecording, reasonProblems, appFormat, W, toggleClaim, toggleEvidence, go, newCase, openCase, appNext, exportApp, draft, requestLines,
         save, evidenceDoc, applicationDoc, examples, useExample, fillSample, tierClass, statusClass, pct, display, labelOf, today };
     },
   }).mount('#app');

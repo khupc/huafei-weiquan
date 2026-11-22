@@ -453,6 +453,9 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
           <label class="f">姓名 <small class="src">{{ src('applicant.name') }}</small><input id="a-name" v-model="st.app.applicant.name"></label>
           <label class="f">性别 <small class="src">{{ src('applicant.gender') }}</small><select id="a-gender" v-model="st.app.applicant.gender"><option value="">请选择</option><option>男</option><option>女</option></select></label>
           <label class="f">身份证号 <small class="src">{{ src('applicant.id_no') }}</small><input id="a-id" v-model="st.app.applicant.id_no"></label>
+          <label class="f">出生日期 <small class="src">{{ src('applicant.birth') }}</small><input id="a-birth" type="date" v-model="st.app.applicant.birth"></label>
+          <label class="f">民族（建议填） <small class="src">{{ src('applicant.ethnicity') }}</small><input id="a-eth" v-model="st.app.applicant.ethnicity" placeholder="如：汉"></label>
+          <label class="f">户口性质（建议填）<select id="a-hukou" v-model="st.app.applicant.hukou"><option value="">请选择</option><option>城镇</option><option>农村</option></select></label>
           <label class="f">住址 <small class="src">{{ src('applicant.address') }}</small><input id="a-addr" v-model="st.app.applicant.address"></label>
           <label class="f">电话 <small class="src">{{ src('applicant.phone') }}</small><input id="a-phone" v-model="st.app.applicant.phone"></label>
           <label class="f">送达地址（仲裁文书寄到哪）<input id="a-service" v-model="st.app.applicant.service_address" :placeholder="st.app.applicant.address ? '不填就用住址：' + st.app.applicant.address : '能稳定收到邮件的地址'"></label>
@@ -461,16 +464,24 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
           <label class="f">名称（工商登记全称） <small class="src">{{ src('respondent.name') }}</small><input id="r-name" v-model="st.app.respondent.name"></label>
           <p class="sub">要写工商登记的全称，不写老板个人。不确定的话，到「国家企业信用信息公示系统」www.gsxt.gov.cn 搜公司名核对，顺便打印「基础信息」页，提交时要用。</p>
           <label class="f">住所 <small class="src">{{ src('respondent.address') }}</small><input id="r-addr" v-model="st.app.respondent.address"></label>
-          <label class="f">法定代表人 <small class="src">{{ src('respondent.legal_rep') }}</small><input id="r-rep" v-model="st.app.respondent.legal_rep"></label>
+          <label class="f">法定代表人（负责人）姓名 <small class="src">{{ src('respondent.legal_rep') }}</small><input id="r-rep" v-model="st.app.respondent.legal_rep"></label>
+          <label class="f">法定代表人职务<input id="r-rep-title" v-model="st.app.respondent.legal_rep_title" placeholder="如：执行董事、总经理（企业信用信息公示系统「主要人员」里能查到）"></label>
           <label class="f">统一社会信用代码（选填） <small class="src">{{ src('respondent.credit_code') }}</small><input id="r-code" v-model="st.app.respondent.credit_code"></label>
+          <label class="f">企业性质（建议填） <small class="src">{{ src('respondent.company_type') }}</small><input id="r-type" v-model="st.app.respondent.company_type" placeholder="营业执照上的「类型」，如：有限责任公司"></label>
+          <label class="f">办公地或经营地（建议填）<input id="r-office" v-model="st.app.respondent.office_address" placeholder="实际办公地址，和住所一样可以不填"></label>
+          <label class="f">单位联系人（建议填）<input v-model="st.app.respondent.contact" placeholder="如：人事经理姓名"></label>
+          <label class="f">联系人部门及职务（建议填）<input v-model="st.app.respondent.contact_title"></label>
+          <label class="f">单位联系电话（建议填）<input v-model="st.app.respondent.phone"></label>
+          <p v-if="suggestMiss.length" class="sub">「建议填」的几项不填也能导出，仲裁委要求的话现场补上。</p>
           <label class="check"><input id="agent-on" type="checkbox" v-model="st.app.agent.on"> 委托别人代我办（会多生成一份授权委托书）</label>
           <template v-if="st.app.agent.on">
-            <label class="f">代理权限<select v-model="st.app.agent.type"><option value="general">一般代理：代为参加仲裁、提交签收文书、陈述、举证、质证、辩论</option><option value="special">特别授权：还可以代为承认、放弃、变更、增加请求，和解调解，签收调解书和裁决书</option></select></label>
+            <label class="f">代理权限<select v-model="st.app.agent.type"><option value="general">一般代理：代为提出仲裁申请、提交证据、申请回避、参加庭审、签署文书和笔录</option><option value="special">特别代理：另可代为承认、放弃、变更仲裁请求，进行和解，提起反申请</option></select></label>
             <label class="f">代理人姓名<input v-model="st.app.agent.name"></label>
-            <label class="f">代理人身份证号<input v-model="st.app.agent.id_no"></label>
-            <label class="f">代理人电话<input v-model="st.app.agent.phone"></label>
-            <label class="f">和你的关系<input v-model="st.app.agent.relation" placeholder="如：配偶、律师"></label>
-            <label class="f">委托期限<input v-model="st.app.agent.term"></label>
+            <label class="f">性别<select v-model="st.app.agent.gender"><option value="">请选择</option><option>男</option><option>女</option></select></label>
+            <label class="f">年龄<input type="number" v-model="st.app.agent.age"></label>
+            <label class="f">工作单位及职务<input v-model="st.app.agent.work" placeholder="如：某律师事务所 律师"></label>
+            <label class="f">经常居住地<input v-model="st.app.agent.residence"></label>
+            <label class="f">联系电话<input v-model="st.app.agent.phone"></label>
             <p class="sub">律师代理的还需要律所公函。</p>
           </template>
         </template>
@@ -525,12 +536,16 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
       <div v-if="limitNear" class="danger">时效快到了：先提交保住时效，证据可以之后补。</div>
       <section class="card stack">
         <h2>去哪里交</h2>
-        <label v-if="appFormat.districts" class="f">你在哪个区上班 <small class="src">{{ src('district') }}</small>
+        <div v-if="appFormat.triage" class="stack">
+          <p class="sub">{{ appFormat.triage.question }}</p>
+          <div class="row"><button class="chip" :class="{on: st.facts.city_level === 'yes'}" @click="editFact('city_level', 'yes')">是</button><button class="chip" :class="{on: st.facts.city_level === 'no'}" @click="editFact('city_level', 'no')">不是</button></div>
+        </div>
+        <label v-if="appFormat.districts && st.facts.city_level !== 'yes'" class="f">你在哪个区上班 <small class="src">{{ src('district') }}</small>
           <select id="district" :value="st.facts.district || ''" @change="e => editFact('district', e.target.value)"><option value="">请选择</option><option v-for="(v, d) in appFormat.districts" :value="d">{{ d }}{{ d === '经开区' ? '' : '区' }}</option></select></label>
         <p v-if="appFormat.jurisdiction" class="sub">{{ appFormat.jurisdiction }}</p>
         <p><b>{{ appFormat.institution && appFormat.institution.name || arbitration }}</b></p>
         <template v-if="institution">
-          <p class="sub">窗口：{{ institution.address }}<br>电话：{{ institution.phone }}<br>办公时间（法定工作日）：{{ institution.hours }}</p>
+          <p class="sub">窗口：{{ institution.address }}<template v-if="institution.phone"><br>电话：{{ institution.phone }}</template><template v-if="institution.hours"><br>办公时间（法定工作日）：{{ institution.hours }}</template><template v-if="!institution.phone"><br>电话和办公时间还没核实，请拨打 12333 查询。</template></p>
           <p class="sub">来源：{{ institution.source }}，核对日期 {{ institution.checked }}。窗口信息会变动，出发前先打电话确认。</p>
         </template>
         <p class="sub" v-else-if="appFormat.districts && st.facts.district">这个区的窗口信息还没核实，请拨打 12333 查询。</p>
