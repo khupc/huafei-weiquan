@@ -23,7 +23,8 @@ signed_exit_doc: yes|no（离开时是否签过离职协议/申请等文件）
 hr_role: yes|no（职务是否负责人事或属于管理层）
 refused_to_sign: yes|no（公司是否书面通知签合同而本人没签）
 company_name: 字符串
-other_issues: 数组，可含 overtime|annual_leave|social_insurance`;
+labor_proof: social|payroll|other|none（没签合同时，能证明劳动关系的最有力材料）
+other_issues: 数组，可含 overtime|annual_leave|social_insurance|work_injury（受伤、工伤、职业病）|platform_work（外卖骑手、网约车等平台接单，外包、劳务派遣、挂靠）`;
 
   async function extract(text, facts, currentSlot) {
     const sample = await samplePromise;
@@ -57,7 +58,7 @@ ${SLOT_SCHEMA}
   function clean(obj) {
     const out = {};
     for (const [k, v] of Object.entries(obj)) {
-      if (k === 'other_issues' && Array.isArray(v)) { out[k] = v.filter(x => ['overtime', 'annual_leave', 'social_insurance'].includes(x)); continue; }
+      if (k === 'other_issues' && Array.isArray(v)) { out[k] = v.filter(x => ['overtime', 'annual_leave', 'social_insurance', 'work_injury', 'platform_work'].includes(x)); continue; }
       const s = F.SLOTS[k];
       if (!s || v === null || v === '') continue;
       if (s.type === 'choice' && !s.options.some(o => o.value === v)) continue;
@@ -163,7 +164,7 @@ ${SLOT_SCHEMA}
       const totals = computed(() => E.totals(chosen.value));
       const next = computed(() => F.nextSlot(st.facts, st.uncertain));
       const prog = computed(() => F.progress(st.facts));
-      const factRows = computed(() => F.ORDER.filter(k => !F.SLOTS[k].when || F.SLOTS[k].when(st.facts)).map(k => ({ key: k, ...F.SLOTS[k], value: st.facts[k] })));
+      const factRows = computed(() => F.neededSlots(st.facts).map(({ key }) => ({ key, ...F.SLOTS[key], value: st.facts[key] })));
       const evidenceGroups = computed(() => {
         const groups = new Set(chosen.value.flatMap(c => R.CLAIMS[c.id].key_evidence));
         return R.EVIDENCE.filter(g => groups.has(g.group));
@@ -199,10 +200,15 @@ ${SLOT_SCHEMA}
         return labelOf(k, v);
       }
 
+      const routed = new Set();
       function askNext() {
+        for (const r of analysis.value.routes) if (!routed.has(r.id)) {
+          routed.add(r.id);
+          st.chat.push({ role: 'ai', text: `提醒：你说的情况涉及「${r.title}」。${r.why}我先把其他事实问完，分析页会单独列出建议。` });
+        }
         const n = next.value;
         if (!n) { st.chat.push({ role: 'ai', text: '主要事实都了解了。下面是我记下的事实，请核对一下，有不对的可以直接改。', summary: true }); return; }
-        st.chat.push({ role: 'ai', text: n.useAlt ? n.alt : n.ask, slot: n.key, options: n.options || null, type: n.type });
+        st.chat.push({ role: 'ai', text: n.useAlt ? n.alt : n.ask, slot: n.key, options: n.options || null, type: n.type, usedBy: n.usedBy });
       }
 
       async function answer(text) {

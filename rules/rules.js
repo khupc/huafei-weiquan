@@ -45,7 +45,10 @@
     limitation: { years: 1, review: OK },
   };
 
-  // 请求目录。supported=false 的只识别、列出，显示「暂不支持测算，建议咨询律师」（L-18）
+  // 请求模块。一个案子可以同时命中多个模块，入口不分类。
+  //   needs：这个模块要用到的事实（engine/facts.js 的 SLOTS），追问时各模块合并去重
+  //   ruled_out_when：事实取这些值时模块不成立，它独有的事实就不再问
+  // supported=false 的只识别、列出，显示「暂不支持测算，建议咨询律师」（L-18）
   const CLAIMS = {
     illegal_termination: {
       title: '违法解除劳动合同赔偿金', supported: true, laws: ['LCL-48', 'LCL-87', 'LCL-47', 'LCL-39-42', 'LCLR-25', 'SPC1-44'],
@@ -57,6 +60,8 @@
       ],
       key_evidence: ['labor_relation', 'termination'],
       exclusive_with: ['reinstatement'],
+      needs: ['separation', 'start_date', 'end_date', 'monthly_wage', 'termination_form', 'termination_reason', 'signed_exit_doc'],
+      ruled_out_when: { separation: ['resigned', 'mutual', 'contract_expired', 'still_employed'] },
     },
     reinstatement: {
       title: '恢复劳动关系（继续履行合同）', supported: true, amount: false, laws: ['LCL-48'], ref: ['L-05'],
@@ -66,6 +71,8 @@
       ],
       key_evidence: ['labor_relation', 'termination'],
       exclusive_with: ['illegal_termination'],
+      needs: ['separation', 'termination_reason', 'signed_exit_doc'],
+      ruled_out_when: { separation: ['resigned', 'mutual', 'contract_expired', 'still_employed'] },
     },
     double_wage: {
       title: '未签书面劳动合同二倍工资差额', supported: true, laws: ['LCL-10', 'LCL-82', 'LCL-14', 'LCLR-6', 'LCLR-7', 'SPC2-6', 'SPC2-7'], ref: ['L-03'],
@@ -75,6 +82,8 @@
       ],
       key_evidence: ['labor_relation'],
       exclusive_with: [],
+      needs: ['signed_contract', 'start_date', 'end_date', 'contract_signed_date', 'monthly_wage', 'hr_role', 'refused_to_sign'],
+      ruled_out_when: { signed_contract: ['yes'] },
     },
     unpaid_wages: {
       title: '拖欠工资', supported: true, laws: ['LCL-30', 'LDAL-27', 'LDAL-6'], ref: ['L-02', 'L-10'],
@@ -84,12 +93,38 @@
       ],
       key_evidence: ['labor_relation', 'wage'],
       exclusive_with: [],
+      needs: ['wages_owed', 'wages_owed_amount'],
+      ruled_out_when: { wages_owed: ['no'] },
     },
     // 以下首批只识别不测算
     overtime: { title: '加班费', supported: false, ref: ['L-08'] },
     annual_leave: { title: '未休年假工资', supported: false, ref: ['L-09'] },
     constructive_dismissal: { title: '被迫辞职的经济补偿', supported: false, ref: ['L-07'], note: '一般只能主张经济补偿 N；辞职通知要写明公司欠薪等具体理由，建议咨询律师' },
     social_insurance: { title: '补缴社保', supported: false, ref: ['L-11'], note: '补缴一般不归仲裁委管，可找社保征收机构（多为税务）或劳动监察' },
+  };
+
+  // 每个案子都要的事实
+  const CORE_FACTS = ['city', 'company_name'];
+
+  // 前置条件：成立后其他请求才有意义。没签书面合同时，先要能证明存在劳动关系（L-01）
+  const PREREQUISITES = {
+    labor_relation: { title: '确认劳动关系', needs: ['labor_proof'], applies_unless: { signed_contract: ['yes'] } },
+  };
+
+  // 分流：程序和这里不同的，不进入下面的测算，单独提示。内容待律师方向线程校准。
+  const ROUTES = {
+    work_injury: {
+      title: '工伤', when_issues: ['work_injury'],
+      why: '工伤要先做工伤认定和劳动能力鉴定，赔偿主要由工伤保险基金支付，和这里的计算是两条路。',
+      next: '本产品暂不支持工伤测算。建议先向当地人社部门申请工伤认定（一般在受伤后 1 年内），并咨询律师。',
+      review: '待校准',
+    },
+    confirm_relation: {
+      title: '先确认劳动关系', when_issues: ['platform_work'], when_facts: { labor_proof: ['none'] },
+      why: '平台接单（外卖、网约车等）、外包、劳务派遣、挂靠，或者手上没有任何能证明在这家公司上班的材料时，是否存在劳动关系、和谁存在劳动关系会是第一个争点。',
+      next: '可以把「确认与某公司存在劳动关系」列为第一项仲裁请求，下面的金额都以它成立为前提。',
+      review: '待校准',
+    },
   };
 
   // 分档条件（校准文档 5.3）。顺序：命中 disputed_when → 有争议；缺 solid_requires → 需补证；否则基本稳。
@@ -145,7 +180,7 @@
     { step: '不服起诉或申请执行', time: '收到裁决书 15 日内起诉', note: '每项都不超过当地月最低工资 12 倍的属终局裁决，单位只能 30 日内向中级法院申请撤销' },
   ];
 
-  const api = { OK, RECHECK, DISPUTED, LAWS, PARAMS, CLAIMS, TIER_RULES, EVIDENCE, EVIDENCE_TIP, DEFENSES, PATH };
+  const api = { OK, RECHECK, DISPUTED, LAWS, PARAMS, CLAIMS, CORE_FACTS, PREREQUISITES, ROUTES, TIER_RULES, EVIDENCE, EVIDENCE_TIP, DEFENSES, PATH };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.LA = Object.assign(root.LA || {}, { rules: api });
 })(this);

@@ -132,6 +132,8 @@ ol.path small { color: var(--muted); display: block; }
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(90px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 13px; z-index: 30; }
 pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padding: 10px; border-radius: 8px; max-height: 260px; overflow: auto; }
 .model { font-size: 11px; color: var(--muted); }
+.used-by { font-size: 11px; color: var(--muted); margin-top: 6px; }
+.route { border-color: var(--need); background: var(--need-soft); }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }
 </style>
 
@@ -173,6 +175,7 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
       <section class="chat">
         <template v-for="(m, i) in st.chat" :key="i">
           <div class="msg" :class="m.role">{{ m.text }}
+            <div v-if="m.usedBy && m.usedBy.length" class="used-by">用于判断：{{ m.usedBy.join('、') }}</div>
             <div v-if="m.role === 'ai' && m.slot && i === st.chat.length - 1 && next && next.key === m.slot" class="opts">
               <template v-if="m.options"><button v-for="o in m.options" :key="o.value" class="chip" @click="pick(m.slot, o)">{{ o.label }}</button></template>
               <input v-else-if="m.type === 'date'" type="date" :id="'d-' + m.slot" @change="e => e.target.value && answer(e.target.value)">
@@ -215,9 +218,14 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
         <template v-if="!analysis.limitation.expired">仲裁时效：距离离职已过 {{ analysis.limitation.days }} 天，一般需在 {{ analysis.limitation.deadline }} 前申请。</template>
         <template v-else>距离离职已过 {{ analysis.limitation.days }} 天，超过了一年的仲裁时效。仍可以申请，但公司可能提出时效抗辩；如果向公司讨要过、向有关部门求助过，这些记录能中断时效，请保留。</template>
       </div>
+      <section v-for="r in analysis.routes" :key="r.id" class="card stack route">
+        <h3>{{ r.title }}：需要单独处理 <span class="pending">{{ r.review }}</span></h3>
+        <p class="sub">{{ r.why }}</p>
+        <p class="sub"><b>建议：</b>{{ r.next }}</p>
+      </section>
       <section class="card">
         <h2>你可以主张这些</h2>
-        <p class="sub">根据你说的事实，对照法条列出可能主张的请求。勾选要主张的，金额在下一步算。</p>
+        <p class="sub">一个案子可以同时主张多项。下面是根据你说的事实对照法条列出的请求，每项单独标把握程度，勾选要主张的，金额在下一步算。</p>
       </section>
       <p v-if="!analysis.claims.length" class="card sub">按目前的事实，还没有首批支持的请求（违法解除、拖欠工资、未签合同二倍工资）成立。可以回去补充事实。</p>
       <article v-for="c in analysis.claims" :key="c.id" class="claim" :class="{on: st.selected.includes(c.id)}">

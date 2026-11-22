@@ -81,6 +81,7 @@
 
   function compensation(facts, std) {
     const lack = missing(facts, ['start_date', 'end_date', 'monthly_wage']);
+    if (!lack.length && facts.end_date <= facts.start_date) lack.push('正确的日期（离职日期早于入职日期）');
     if (lack.length) return { amount: null, lack };
     const c = compensationWith(+facts.monthly_wage, facts, std);
     return { ...c, formula: `经济补偿 ${yuan(c.base)} 元/月 × ${c.n} 个月 = ${yuan(c.amount)} 元` };
@@ -167,7 +168,7 @@
   function elementStatus(key, facts, evidence) {
     switch (key) {
       case 'labor_relation':
-        return facts.signed_contract === 'yes' || facts.signed_contract === 'later' || hasEvidence(evidence, 'labor_relation') ? '已满足' : '还需证据';
+        return facts.signed_contract === 'yes' || facts.signed_contract === 'later' || ['social', 'payroll', 'other'].includes(facts.labor_proof) || hasEvidence(evidence, 'labor_relation') ? '已满足' : '还需证据';
       case 'company_terminated':
         if (facts.separation === 'company_terminated') return '已满足';
         return !facts.separation ? '还需证据' : '不满足';
@@ -242,7 +243,7 @@
       });
     }
     const unsupported = detectUnsupported(facts).map(id => ({ id, title: R.CLAIMS[id].title, note: R.CLAIMS[id].note || '暂不支持测算，建议咨询律师；时效紧的先申请仲裁保住时效', ref: R.CLAIMS[id].ref }));
-    return { claims, unsupported, limitation: limitation(facts, today) };
+    return { claims, unsupported, routes: routes(facts), limitation: limitation(facts, today) };
   }
 
   function summarize(id, f, tier) {
@@ -255,6 +256,15 @@
       unpaid_wages: '已到期没发的工资，公司应当足额支付',
     }[id];
     return s + (tier === '有争议' ? '（存在争议点）' : '');
+  }
+
+  // 分流：程序不同的案子（工伤、需先确认劳动关系）
+  function routes(f) {
+    const issues = f.other_issues || [];
+    return Object.entries(R.ROUTES).filter(([, r]) =>
+      (r.when_issues || []).some(i => issues.includes(i)) ||
+      Object.entries(r.when_facts || {}).some(([k, vals]) => vals.includes(f[k])),
+    ).map(([id, r]) => ({ id, ...r }));
   }
 
   function detectUnsupported(f) {

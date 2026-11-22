@@ -2,6 +2,7 @@
 // 选下一个问题由这里的规则决定；模型只负责从自由描述里抽取事实（见 web/llm.js）。
 // 清单本身待律师校准（L-19）。
 (function (root) {
+  const R = typeof module !== 'undefined' && module.exports ? require('../rules/rules.js') : root.LA.rules;
   const SLOTS = {
     city: {
       label: '工作城市', type: 'city',
@@ -99,6 +100,17 @@
         { label: '有，我没签', value: 'yes' },
       ],
     },
+    labor_proof: {
+      label: '能证明劳动关系的材料', type: 'choice',
+      ask: '没签合同的话，你手上有什么能证明在这家公司上班？挑最有力的一样说就行。',
+      alt: '换个问法：工资是谁转给你的？有没有工牌、打卡记录、工作群？',
+      options: [
+        { label: '有社保缴费记录', value: 'social' },
+        { label: '有公司账户发的工资流水', value: 'payroll' },
+        { label: '有工牌、考勤或工作群', value: 'other' },
+        { label: '都没有', value: 'none' },
+      ],
+    },
     wages_owed: {
       label: '是否拖欠工资', type: 'choice',
       ask: '公司有没有欠你还没发的工资？',
@@ -121,7 +133,7 @@
   };
 
   const ORDER = ['city', 'separation', 'start_date', 'end_date', 'monthly_wage', 'signed_contract', 'contract_signed_date',
-    'termination_form', 'termination_reason', 'signed_exit_doc', 'hr_role', 'refused_to_sign', 'wages_owed', 'wages_owed_amount', 'company_name'];
+    'termination_form', 'termination_reason', 'signed_exit_doc', 'hr_role', 'refused_to_sign', 'labor_proof', 'wages_owed', 'wages_owed_amount', 'company_name'];
 
   // 不在问答里问、在测算页填的参数
   const PARAM_SLOTS = {
@@ -132,21 +144,39 @@
 
   function isFilled(v) { return v !== undefined && v !== null && v !== ''; }
 
+  function matches(cond, facts) {
+    return !!cond && Object.entries(cond).some(([k, vals]) => vals.includes(facts[k]));
+  }
+
+  // 各请求模块、前置条件和通用事实合并去重后，现在还需要哪些事实；每个事实记下是哪些模块要的
+  function neededSlots(facts) {
+    const need = new Map();
+    const add = (key, by) => { if (!need.has(key)) need.set(key, []); if (by) need.get(key).push(by); };
+    R.CORE_FACTS.forEach(k => add(k));
+    for (const def of Object.values(R.CLAIMS)) {
+      if (!def.supported || !def.needs || matches(def.ruled_out_when, facts)) continue;
+      def.needs.forEach(k => add(k, def.title));
+    }
+    for (const p of Object.values(R.PREREQUISITES)) {
+      if (matches(p.applies_unless, facts)) continue;
+      p.needs.forEach(k => add(k, p.title));
+    }
+    return ORDER.filter(k => need.has(k) && (!SLOTS[k].when || SLOTS[k].when(facts))).map(k => ({ key: k, usedBy: need.get(k) }));
+  }
+
   // 下一个要问的事实。uncertain 记录用户已答「不确定」的次数：1 次换问法，2 次跳过。
   function nextSlot(facts, uncertain = {}) {
-    for (const key of ORDER) {
-      const s = SLOTS[key];
-      if (s.when && !s.when(facts)) continue;
+    for (const { key, usedBy } of neededSlots(facts)) {
       if (isFilled(facts[key])) continue;
       if ((uncertain[key] || 0) >= 2) continue;
-      return { key, ...s, useAlt: (uncertain[key] || 0) === 1 };
+      return { key, ...SLOTS[key], usedBy: [...new Set(usedBy)], useAlt: (uncertain[key] || 0) === 1 };
     }
     return null;
   }
 
   function progress(facts) {
-    const active = ORDER.filter(k => !SLOTS[k].when || SLOTS[k].when(facts));
-    return { done: active.filter(k => isFilled(facts[k])).length, total: active.length };
+    const active = neededSlots(facts);
+    return { done: active.filter(s => isFilled(facts[s.key])).length, total: active.length };
   }
 
   // ---- 没有模型时的关键词抽取（兜底） ----
@@ -226,6 +256,8 @@
     if (/加班/.test(t)) issues.push('overtime');
     if (/年假/.test(t)) issues.push('annual_leave');
     if (/社保|五险/.test(t)) issues.push('social_insurance');
+    if (/受伤|工伤|摔伤|砸伤|骨折|职业病/.test(t)) issues.push('work_injury');
+    if (/外卖|骑手|网约车|跑腿|平台派单|外包|劳务派遣|派遣|挂靠/.test(t)) issues.push('platform_work');
     if (issues.length) out.other_issues = issues;
 
     const company = t.match(/([一-龥]{2,30}(?:有限责任公司|股份有限公司|有限公司|集团))/);
@@ -233,7 +265,7 @@
     return out;
   }
 
-  const api = { SLOTS, PARAM_SLOTS, ORDER, nextSlot, progress, keywordExtract, addMonths, isFilled };
+  const api = { SLOTS, PARAM_SLOTS, ORDER, neededSlots, nextSlot, progress, keywordExtract, addMonths, isFilled };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.LA = Object.assign(root.LA || {}, { facts: api });
 })(this);

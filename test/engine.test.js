@@ -171,3 +171,31 @@ test('预计申请日推后，时效争议随之出现', () => {
   assert.strictEqual(E.doubleWage(f, null, '2026-01-05').conservative, undefined);
   assert.ok(E.doubleWage({ ...f, filing_date: '2026-03-01' }, null, '2026-01-05').conservative < 95700);
 });
+
+test('模块驱动追问：同一事实只问一次，并记下哪些请求要用', () => {
+  const s = F.neededSlots({ city: '苏州' }).find(x => x.key === 'start_date');
+  assert.deepStrictEqual([...new Set(s.usedBy)].sort(), ['未签书面劳动合同二倍工资差额', '违法解除劳动合同赔偿金'].sort());
+});
+test('模块排除后，它独有的事实不再问', () => {
+  const keys = f => F.neededSlots(f).map(x => x.key);
+  const signed = keys({ city: '苏州', signed_contract: 'yes' });
+  assert.ok(!signed.includes('hr_role') && !signed.includes('refused_to_sign') && !signed.includes('labor_proof'));
+  const resigned = keys({ city: '苏州', separation: 'resigned' });
+  assert.ok(!resigned.includes('termination_reason') && resigned.includes('end_date'));
+  assert.ok(!keys({ city: '苏州', wages_owed: 'no' }).includes('wages_owed_amount'));
+});
+test('一个案子同时命中三类请求', () => {
+  const a = E.analyze({ ...sample, wages_owed: 'yes', wages_owed_amount: 5000 }, null, {}, TODAY);
+  assert.deepStrictEqual(a.claims.map(c => c.id).sort(), ['double_wage', 'illegal_termination', 'reinstatement', 'unpaid_wages']);
+});
+test('前置条件：没签合同时问劳动关系材料，有材料则劳动关系要件满足', () => {
+  assert.ok(F.neededSlots({ city: '苏州', signed_contract: 'no' }).some(x => x.key === 'labor_proof'));
+  const a = E.analyze({ ...sample, labor_proof: 'payroll' }, null, {}, TODAY);
+  assert.strictEqual(a.claims[0].elements.find(e => e.key === 'labor_relation').status, '已满足');
+});
+test('分流：工伤、平台用工、没有劳动关系材料', () => {
+  assert.deepStrictEqual(E.analyze({ other_issues: ['work_injury'] }, null, {}, TODAY).routes.map(r => r.id), ['work_injury']);
+  assert.deepStrictEqual(E.analyze({ labor_proof: 'none' }, null, {}, TODAY).routes.map(r => r.id), ['confirm_relation']);
+  const kw = F.keywordExtract('我是外卖骑手，送餐时摔伤了', TODAY);
+  assert.deepStrictEqual(kw.other_issues.sort(), ['platform_work', 'work_injury']);
+});
