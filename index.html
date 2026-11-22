@@ -141,10 +141,10 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
       <div class="bar">
         <button class="icon-btn" @click="ui.drawer = true" aria-label="历史案件">☰</button>
         <h1>劳动仲裁助手 <span class="pending">测试版</span></h1>
-        <button v-if="st.page !== 'P0' && st.page !== 'P1'" class="icon-btn" @click="go('P1')">补充事实</button>
+        <button v-if="st.page !== 'P1'" class="icon-btn" @click="go('P1')">补充事实</button>
       </div>
-      <nav class="steps" v-if="st.page !== 'P0'">
-        <button v-for="p in PAGES" :key="p.id" :class="{on: st.page === p.id}" :disabled="p.id !== 'P0' && p.id !== 'P1' && !st.selected.length && p.id !== 'P2'" @click="p.id === 'P2' ? toAnalysis() : go(p.id)">{{ p.name }}</button>
+      <nav class="steps" v-if="st.chat.some(m => m.role === 'user')">
+        <button v-for="p in PAGES" :key="p.id" :class="{on: st.page === p.id}" :disabled="p.id !== 'P1' && p.id !== 'P2' && !st.selected.length" @click="p.id === 'P2' ? toAnalysis() : go(p.id)">{{ p.name }}</button>
       </nav>
     </div>
   </header>
@@ -164,37 +164,9 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
   </template>
 
   <main class="wrap">
-    <!-- P0 首页 -->
-    <template v-if="st.page === 'P0'">
-      <section class="card stack">
-        <div>
-          <h2>说说你遇到了什么</h2>
-          <p class="sub">用一两句话讲清楚就行：在哪干、干了多久、工资多少、发生了什么。</p>
-        </div>
-        <div>
-          <button class="city" @click="ui.cityOpen = !ui.cityOpen">工作所在城市：<b>{{ st.city || '请选择' }}</b><span class="grow"></span><span class="sub">{{ ui.cityOpen ? '收起' : '修改' }}</span></button>
-          <div v-if="ui.cityOpen" class="stack" style="padding-top:8px">
-            <input id="city-q" v-model="ui.cityQ" placeholder="搜索城市或省份，例如 苏州">
-            <div class="city-list">
-              <button v-for="c in cityMatches" :key="c.city" class="chip" :class="{on: st.city === c.city}" @click="st.city = c.city; ui.cityOpen = false">{{ c.city }}</button>
-            </div>
-          </div>
-        </div>
-        <textarea id="intro" v-model="ui.text" placeholder="例如：在苏州做了 3 年 4 个月仓库主管，月薪 9000，上个月被口头通知明天别来了，没签过劳动合同"></textarea>
-        <div class="row">
-          <button v-for="k in examples" :key="k" class="chip" @click="useExample(k)">{{ k }}</button>
-        </div>
-        <div class="row">
-          <button class="btn grow" :disabled="ui.busy || !ui.text.trim()" @click="start">{{ st.city ? '开始分析' : '先选城市' }}</button>
-          <button class="btn ghost" @click="fillSample">填入示例</button>
-        </div>
-        <p class="disclaimer">AI 生成内容，仅供参考，不构成法律意见。<br><span class="model">模型：{{ model.status }}</span></p>
-      </section>
-    </template>
-
     <!-- P1 事实问答 -->
     <template v-if="st.page === 'P1'">
-      <section class="stack">
+      <section v-if="st.chat.some(m => m.role === 'user')" class="stack">
         <div class="row"><span class="sub grow">已了解 {{ prog.done }} / {{ prog.total }} 项事实</span><button class="btn plain" @click="toAnalysis">先看分析 →</button></div>
         <div class="progress"><i :style="{width: (prog.done / prog.total * 100) + '%'}"></i></div>
       </section>
@@ -216,18 +188,22 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
                 <select v-if="r.type === 'choice'" :id="'f-' + r.key" :value="r.value || ''" @change="e => editFact(r.key, e.target.value)">
                   <option value="">未填</option><option v-for="o in r.options" :value="o.value">{{ o.label }}</option>
                 </select>
-                <input v-else :id="'f-' + r.key" :type="r.type === 'number' ? 'number' : r.type === 'date' ? 'date' : 'text'" :value="r.value || ''" @change="e => editFact(r.key, e.target.value)">
+                <input v-else :id="'f-' + r.key" :list="r.type === 'city' ? 'city-options' : null" :type="r.type === 'number' ? 'number' : r.type === 'date' ? 'date' : 'text'" :value="r.value || ''" @change="e => editFact(r.key, e.target.value)">
               </div>
             </div>
             <button class="btn block" @click="toAnalysis">确认事实，看能主张什么</button>
           </div>
         </template>
+        <div v-if="!st.chat.some(m => m.role === 'user')" class="stack">
+          <div class="row"><button v-for="k in examples" :key="k" class="chip" @click="useExample(k)">{{ k }}</button><button class="chip" @click="fillSample">填入示例</button></div>
+          <p class="disclaimer">AI 生成内容，仅供参考，不构成法律意见。<br><span class="model">模型：{{ model.status }}</span></p>
+        </div>
         <div v-if="ui.busy" class="thinking">正在读你说的话…（用 Claude 时约几秒）</div>
         <div id="chat-end"></div>
       </section>
       <div class="composer wrap">
         <div class="inner">
-          <input id="reply" class="grow" v-model="ui.reply" placeholder="也可以直接打字回答" @keyup.enter="answer()">
+          <textarea id="reply" class="grow" rows="1" style="min-height:44px" v-model="ui.reply" :placeholder="st.chat.some(m => m.role === 'user') ? '直接打字回答，或点上面的选项' : '例如：在苏州做了 3 年仓库主管，月薪 9000，上个月被口头辞退，没签合同'" @keydown.enter.exact.prevent="answer()"></textarea>
           <button class="btn" :disabled="ui.busy || !ui.reply.trim()" @click="answer()">发送</button>
         </div>
       </div>
@@ -275,7 +251,7 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
         <h2>金额测算</h2>
         <p class="sub">金额全部按固定公式计算，改任何参数都会马上重算。这里的数是「可主张」的数额，不等于最终能拿到的。</p>
         <div class="params">
-          <label class="f">城市<input id="p-city" :value="st.city" disabled></label>
+          <label class="f">城市<input id="p-city" :value="st.facts.city" disabled></label>
           <label v-for="k in ['monthly_wage', 'start_date', 'end_date', 'contract_signed_date', 'wages_owed_amount'].filter(k => !F.SLOTS[k].when || F.SLOTS[k].when(st.facts))" :key="k" class="f">
             <span>{{ F.SLOTS[k].label }} <span v-if="st.manual[k]" class="manual">已手动修改</span></span>
             <input :id="'p-' + k" :type="F.SLOTS[k].type === 'number' ? 'number' : 'date'" :value="st.facts[k] || ''" @change="e => editFact(k, e.target.value)">
@@ -283,14 +259,13 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
           <label class="f"><span>{{ F.PARAM_SLOTS.monthly_overtime.label }} <span v-if="st.manual.monthly_overtime" class="manual">已手动修改</span></span>
             <input id="p-ot" type="number" :value="st.facts.monthly_overtime || ''" @change="e => editFact('monthly_overtime', e.target.value)" placeholder="填了会多算一个不含加班费的保守值"></label>
           <label class="f"><span>{{ F.PARAM_SLOTS.company_city.label }}</span>
-            <input id="p-ccity" list="city-options" :value="st.facts.company_city || ''" @change="e => editFact('company_city', e.target.value)" :placeholder="'默认同工作城市：' + st.city"></label>
+            <input id="p-ccity" list="city-options" :value="st.facts.company_city || ''" @change="e => editFact('company_city', e.target.value)" :placeholder="'默认同工作城市：' + st.facts.city"></label>
           <label class="f"><span>{{ F.PARAM_SLOTS.filing_date.label }}</span>
             <input id="p-filing" type="date" :value="st.facts.filing_date || today()" @change="e => editFact('filing_date', e.target.value)"></label>
           <label class="f"><span>{{ stdCity }} {{ std && std.year }} 年度职工月平均工资 <span class="sub">（{{ std && std.origin.avg_wage }}）</span></span>
             <input id="p-avg" type="number" v-model="st.avgWage" placeholder="该地标准待补，可自行填写"></label>
           <label class="f"><span>{{ stdCity }} 月最低工资 <span class="sub">（{{ std && std.origin.min_wage }}）</span></span>
             <input id="p-min" type="number" v-model="st.minWage" placeholder="该地标准待补，可自行填写"></label>
-          <datalist id="city-options"><option v-for="c in allCities" :value="c.city"></option></datalist>
         </div>
       </section>
       <section class="card">
@@ -311,7 +286,7 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
     <!-- P4 可行性报告 -->
     <template v-if="st.page === 'P4'">
       <section class="card stack">
-        <span class="eyebrow">预计可主张总额 · {{ st.city }}</span>
+        <span class="eyebrow">预计可主张总额 · {{ st.facts.city }}</span>
         <div class="big">{{ E.yuan(totals.total) }} <small style="font-size:16px">元</small></div>
         <div class="tri"><i :style="{width: pct('基本稳')}"></i><i :style="{width: pct('需补证')}"></i><i :style="{width: pct('有争议')}"></i></div>
         <div class="legend"><b style="color:var(--solid)">基本稳 {{ E.yuan(totals['基本稳']) }}</b><b style="color:var(--need)">需补证 {{ E.yuan(totals['需补证']) }}</b><b style="color:var(--dispute)">有争议 {{ E.yuan(totals['有争议']) }}</b></div>
@@ -413,6 +388,7 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
       <button class="btn plain" @click="ui.exportText = ''">关闭</button>
     </section>
   </main>
+  <datalist id="city-options"><option v-for="c in allCities" :value="c.city"></option></datalist>
   <div v-if="ui.toast" class="toast">{{ ui.toast }}</div>
 </div>
 

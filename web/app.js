@@ -11,7 +11,8 @@
   if (window.claude && window.claude.use) samplePromise = window.claude.use('sample').catch(() => null);
   samplePromise.then(s => { model.ok = !!s; model.status = s ? 'Claude（首次调用会请你授权）' : '关键词版（当前环境用不了模型）'; });
 
-  const SLOT_SCHEMA = `separation: company_terminated|resigned|mutual|contract_expired|still_employed
+  const SLOT_SCHEMA = `city: 工作所在城市，写地级市名（如 苏州、深圳），不带「市」
+separation: company_terminated|resigned|mutual|contract_expired|still_employed
 start_date / end_date / contract_signed_date: YYYY-MM-DD（只知道月份就写该月 01 日）
 monthly_wage / wages_owed_amount: 数字（元）
 signed_contract: yes|no|later（later=入职很久后补签）
@@ -46,6 +47,8 @@ ${SLOT_SCHEMA}
       }
     }
     const kw = F.keywordExtract(text, today());
+    const city = findCity(text);
+    if (city) kw.city = city;
     if (currentSlot && !kw[currentSlot.key]) Object.assign(kw, directAnswer(currentSlot, text));
     return { facts: kw, recap: '', by: 'keyword' };
   }
@@ -60,6 +63,7 @@ ${SLOT_SCHEMA}
       if (s.type === 'choice' && !s.options.some(o => o.value === v)) continue;
       if (s.type === 'number') { const n = +v; if (!isNaN(n) && n > 0) out[k] = n; continue; }
       if (s.type === 'date') { const d = parseDate(String(v)); if (d) out[k] = d; continue; }
+      if (s.type === 'city') { const c = findCity(String(v)); if (c) out[k] = c; continue; }
       out[k] = v;
     }
     return out;
@@ -72,7 +76,17 @@ ${SLOT_SCHEMA}
     return `${m[1]}-${p(m[2])}-${p(m[3] || 1)}`;
   }
 
+  // 在一句话里找城市名：先找完整的地级市名，再去掉「市」「地区」等后缀比
+  const CITY_NAMES = G.PROVINCES.flatMap(p => p.cities).sort((a, b) => b.length - a.length);
+  const short = c => c.replace(/(市|地区|盟|林区)$/, '').replace(/(土家族|苗族|藏族|羌族|彝族|朝鲜族|蒙古族|哈尼族|壮族|傣族|白族|景颇族|傈僳族|布依族|侗族|回族|柯尔克孜|哈萨克|蒙古|自治州|自治)+$/, '');
+  function findCity(text) {
+    for (const c of CITY_NAMES) if (text.includes(c)) return c;
+    for (const c of CITY_NAMES) { const s = short(c); if (s.length >= 2 && text.includes(s)) return c; }
+    return null;
+  }
+
   function directAnswer(slot, text) {
+    if (slot.type === 'city') { const c = findCity(text); return c ? { city: c } : {}; }
     if (slot.type === 'number') { const m = text.replace(/,/g, '').match(/(\d+(?:\.\d+)?)\s*(万)?/); return m ? { [slot.key]: parseFloat(m[1]) * (m[2] ? 10000 : 1) } : {}; }
     if (slot.type === 'date') { const d = parseDate(text); return d ? { [slot.key]: d } : {}; }
     if (slot.type === 'text') return { [slot.key]: text.trim() };
@@ -86,7 +100,7 @@ ${SLOT_SCHEMA}
     const prompt = `请为劳动仲裁申请书起草「事实与理由」部分。要求：第三人称称「申请人」「被申请人」；按时间顺序陈述事实；只使用下面给出的事实，不要编造；不要写具体法条原文；金额照抄下面的数字；最后一段写「为维护申请人的合法权益，特依法申请仲裁，请求支持申请人的仲裁请求。」；300 字以内；只输出正文。
 事实：${JSON.stringify(st.facts)}
 仲裁请求：${claims.map(c => c.title + (c.calc && c.calc.amount ? ' ' + E.yuan(c.calc.amount) + ' 元' : '')).join('；')}
-城市：${st.city}`;
+城市：${st.facts.city}`;
     try { const r = await sample(prompt, { cache: false }); return r.text.trim() || fallback; } catch (e) { return fallback; }
   }
 
@@ -115,29 +129,26 @@ ${SLOT_SCHEMA}
 
   function blankCase() {
     return {
-      id: 'c' + Date.now(), updated: null, page: 'P0', city: '', facts: {}, manual: {}, uncertain: {},
-      chat: [], evidence: { labor_relation: [], wage: [], termination: [] }, selected: [], avgWage: null, minWage: null,
+      id: 'c' + Date.now(), updated: null, page: 'P1', facts: {}, manual: {}, uncertain: {},
+      chat: [{ role: 'ai', text: GREETING }], evidence: { labor_relation: [], wage: [], termination: [] }, selected: [], avgWage: null, minWage: null,
       app: { applicant: { name: '', gender: '', id_no: '', address: '', phone: '' }, respondent: { name: '', address: '', legal_rep: '', credit_code: '' }, reasons: '', step: 1 },
     };
   }
 
+  const GREETING = '你好，我是劳动仲裁助手。先用一两句话说说发生了什么：在哪个城市上班、干了多久、工资多少、公司做了什么。说不全也没关系，我再接着问。';
   const PAGES = [
-    { id: 'P0', name: '描述' }, { id: 'P1', name: '问答' }, { id: 'P2', name: '分析' }, { id: 'P3', name: '测算' },
+    { id: 'P1', name: '对话' }, { id: 'P2', name: '分析' }, { id: 'P3', name: '测算' },
     { id: 'P4', name: '报告' }, { id: 'P5', name: '证据' }, { id: 'P6', name: '申请书' },
   ];
 
   createApp({
     setup() {
       const st = reactive(blankCase());
-      const ui = reactive({ text: '', reply: '', busy: false, drawer: false, cases: loadCases(), cityOpen: false, cityQ: '', tab: 'detail', missing: [], exportText: '', editing: false, toast: '' });
+      const ui = reactive({ reply: '', busy: false, drawer: false, cases: loadCases(), tab: 'detail', missing: [], exportText: '', editing: false, toast: '' });
 
       const allCities = G.PROVINCES.flatMap(p => p.cities.map(c => ({ city: c, province: p.province })));
-      const cityMatches = computed(() => {
-        const q = ui.cityQ.trim();
-        return (q ? allCities.filter(c => c.city.includes(q) || c.province.includes(q)) : allCities).slice(0, 40);
-      });
       // 社平工资按「用人单位所在」城市取，最低工资同；年度取解除时的上年度（校准文档 L-04、4.1）
-      const stdCity = computed(() => (st.facts.company_city && G.provinceOf(st.facts.company_city)) ? st.facts.company_city : st.city);
+      const stdCity = computed(() => (st.facts.company_city && G.provinceOf(st.facts.company_city)) ? st.facts.company_city : st.facts.city);
       const std = computed(() => {
         const s = stdCity.value ? G.standardsFor(stdCity.value, st.facts.end_date || today()) : null;
         if (!s) return null;
@@ -157,7 +168,7 @@ ${SLOT_SCHEMA}
         const groups = new Set(chosen.value.flatMap(c => R.CLAIMS[c.id].key_evidence));
         return R.EVIDENCE.filter(g => groups.has(g.group));
       });
-      const arbitration = computed(() => st.city ? `${st.city}${/市|州|盟|地区|林区$/.test(st.city) ? '' : '市'}劳动人事争议仲裁委员会` : '');
+      const arbitration = computed(() => st.facts.city ? `${st.facts.city}${/市|州|盟|地区|林区$/.test(st.facts.city) ? '' : '市'}劳动人事争议仲裁委员会` : '');
 
       function persist() {
         st.updated = new Date().toISOString();
@@ -194,30 +205,20 @@ ${SLOT_SCHEMA}
         st.chat.push({ role: 'ai', text: n.useAlt ? n.alt : n.ask, slot: n.key, options: n.options || null, type: n.type });
       }
 
-      async function start() {
-        if (!st.city) { ui.cityOpen = true; return; }
-        const text = ui.text.trim();
-        if (!text) return;
-        ui.busy = true; st.page = 'P1';
-        st.chat.push({ role: 'user', text });
-        ui.text = '';
-        const r = await extract(text, st.facts, null);
-        const changed = merge(r.facts);
-        st.chat.push({ role: 'ai', text: changed.length ? `我先复述一下听懂的：${r.recap || recapOf(changed)}。` : '我还没从描述里读出具体事实，我们一个个来。' });
-        ui.busy = false;
-        askNext(); scrollChat();
-      }
-
       async function answer(text) {
         text = (text || ui.reply).trim();
         if (!text || ui.busy) return;
-        const slot = next.value;
+        const first = !st.chat.some(m => m.role === 'user');
+        const slot = first ? null : next.value;
         st.chat.push({ role: 'user', text }); ui.reply = '';
-        ui.busy = true;
+        ui.busy = true; scrollChat();
         const r = await extract(text, st.facts, slot);
+        // 已有城市时，只有在问城市这一步才改（避免公司名里的地名把城市覆盖掉）
+        if (st.facts.city && !(slot && slot.key === 'city')) delete r.facts.city;
         const changed = merge(r.facts);
         ui.busy = false;
-        if (changed.length) st.chat.push({ role: 'ai', text: `记下了：${recapOf(changed)}。` });
+        if (first) st.chat.push({ role: 'ai', text: changed.length ? `我先复述一下听懂的：${r.recap || recapOf(changed)}。` : '好的，我们一个个来。' });
+        else if (changed.length) st.chat.push({ role: 'ai', text: `记下了：${recapOf(changed)}。` });
         else if (slot) { st.uncertain[slot.key] = (st.uncertain[slot.key] || 0) + 1; st.chat.push({ role: 'ai', text: '这个我没太读懂，换个方式问。' }); }
         askNext(); scrollChat();
       }
@@ -260,7 +261,7 @@ ${SLOT_SCHEMA}
       function go(p) { st.page = p; window.scrollTo(0, 0); }
 
       function newCase() { Object.assign(st, blankCase()); ui.drawer = false; }
-      function openCase(c) { Object.assign(st, blankCase(), JSON.parse(JSON.stringify(c))); ui.drawer = false; }
+      function openCase(c) { Object.assign(st, blankCase(), JSON.parse(JSON.stringify(c))); if (st.page === 'P0') st.page = 'P1'; ui.drawer = false; }
 
       // ---------- P6 校验 ----------
       const REQUIRED = {
@@ -350,15 +351,15 @@ ${SLOT_SCHEMA}
 
       const examples = ['被辞退', '拖欠工资', '没签合同', '加班没给钱', '没交社保'];
       const EXAMPLE_TEXT = { 被辞退: '我被公司辞退了，', 拖欠工资: '公司拖欠我工资，', 没签合同: '公司一直没和我签劳动合同，', 加班没给钱: '经常加班但公司没给加班费，', 没交社保: '公司没给我交社保，' };
-      function useExample(k) { ui.text += EXAMPLE_TEXT[k]; }
-      function fillSample() { st.city = st.city || '苏州'; ui.text = '在苏州做了3年4个月仓库主管，月薪9000，上个月被口头通知明天别来了，没给理由，没签过劳动合同，工资每月微信转账'; }
+      function useExample(k) { ui.reply += EXAMPLE_TEXT[k]; }
+      function fillSample() { ui.reply = '在苏州做了3年4个月仓库主管，月薪9000，上个月被口头通知明天别来了，没给理由，没签过劳动合同，工资每月微信转账'; }
 
       const tierClass = t => ({ 基本稳: 'solid', 需补证: 'need', 有争议: 'dispute' }[t]);
       const statusClass = s => ({ 已满足: 'ok', 还需证据: 'need', 不满足: 'no' }[s]);
       const pct = k => totals.value.total ? (totals.value[k] / totals.value.total * 100) + '%' : '0%';
 
-      return { st, ui, R, E, F, G, PAGES, model, allCities, cityMatches, std, stdCity, analysis, chosen, conflicts, totals, next, prog, factRows, evidenceGroups, arbitration,
-        start, answer, pick, notSure, editFact, toAnalysis, toggleClaim, toggleEvidence, go, newCase, openCase, appNext, exportApp, draft, requestLines,
+      return { st, ui, R, E, F, G, PAGES, model, allCities, std, stdCity, analysis, chosen, conflicts, totals, next, prog, factRows, evidenceGroups, arbitration,
+        answer, pick, notSure, editFact, toAnalysis, toggleClaim, toggleEvidence, go, newCase, openCase, appNext, exportApp, draft, requestLines,
         save, evidenceDoc, applicationDoc, examples, useExample, fillSample, tierClass, statusClass, pct, display, labelOf, today };
     },
   }).mount('#app');

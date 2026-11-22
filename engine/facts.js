@@ -3,6 +3,11 @@
 // 清单本身待律师校准（L-19）。
 (function (root) {
   const SLOTS = {
+    city: {
+      label: '工作城市', type: 'city',
+      ask: '你在哪个城市上班？',
+      alt: '换个问法：公司在哪个城市，或者你平时在哪个城市上班？写到地级市就行，比如苏州、东莞。',
+    },
     separation: {
       label: '离职方式', type: 'choice',
       ask: '公司是怎么让你走的？还是你现在仍在职？',
@@ -115,7 +120,7 @@
     },
   };
 
-  const ORDER = ['separation', 'start_date', 'end_date', 'monthly_wage', 'signed_contract', 'contract_signed_date',
+  const ORDER = ['city', 'separation', 'start_date', 'end_date', 'monthly_wage', 'signed_contract', 'contract_signed_date',
     'termination_form', 'termination_reason', 'signed_exit_doc', 'hr_role', 'refused_to_sign', 'wages_owed', 'wages_owed_amount', 'company_name'];
 
   // 不在问答里问、在测算页填的参数

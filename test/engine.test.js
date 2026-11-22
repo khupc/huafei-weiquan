@@ -123,14 +123,15 @@ test('时效倒计时', () => {
   assert.strictEqual(a.limitation.expired, false);
 });
 
-test('追问顺序：先问离职方式，在职不问离职日期', () => {
-  assert.strictEqual(F.nextSlot({}).key, 'separation');
-  const n = F.nextSlot({ separation: 'still_employed', start_date: '2024-01-01' });
+test('追问顺序：没说城市先问城市，再问离职方式；在职不问离职日期', () => {
+  assert.strictEqual(F.nextSlot({}).key, 'city');
+  assert.strictEqual(F.nextSlot({ city: '苏州' }).key, 'separation');
+  const n = F.nextSlot({ city: '苏州', separation: 'still_employed', start_date: '2024-01-01' });
   assert.strictEqual(n.key, 'monthly_wage');
 });
 test('「不确定」一次换问法，两次跳过', () => {
-  assert.strictEqual(F.nextSlot({}, { separation: 1 }).useAlt, true);
-  assert.strictEqual(F.nextSlot({}, { separation: 2 }).key, 'start_date');
+  assert.strictEqual(F.nextSlot({ city: '苏州' }, { separation: 1 }).useAlt, true);
+  assert.strictEqual(F.nextSlot({ city: '苏州' }, { separation: 2 }).key, 'start_date');
 });
 
 test('关键词兜底能读懂报告里的示例句', () => {
