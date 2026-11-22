@@ -144,6 +144,9 @@
       ask: '一共欠了多少钱？按每个月税前应发减去实际到手的差额加起来。',
       alt: '换个问法：欠了几个月？每月大概少发多少？我们帮你乘一下。',
     },
+    // 用户按月说欠薪时记下的原始数据，合计由 derive() 用代码算，不在问答里单独问
+    wages_owed_months: { label: '欠薪月数', type: 'number' },
+    wages_owed_per_month: { label: '每月欠付（元）', type: 'number' },
     company_name: {
       label: '公司全称', type: 'text',
       ask: '公司全称是什么？可以对照营业执照、工资转账备注或社保记录。',
@@ -248,9 +251,14 @@
     else if (/补签/.test(t)) out.signed_contract = 'later';
     else if (/签了.{0,3}合同|签过.{0,3}合同|有劳动合同/.test(t)) out.signed_contract = 'yes';
 
-    if (/欠.{0,4}工资|拖欠|没发工资|工资没发|欠薪/.test(t)) {
+    if (/欠.{0,8}工资|拖欠|没发工资|工资没发|欠薪/.test(t)) {
       out.wages_owed = 'yes';
-      const owed = t.match(/欠[^\d]{0,6}(\d+(?:\.\d+)?)(万)?/);
+      const cn = { 一: 1, 两: 2, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
+      const months = t.match(/(\d+|[一两二三四五六七八九十])\s*个月/);
+      if (months && /欠|没发|拖/.test(t)) out.wages_owed_months = cn[months[1]] || +months[1];
+      const per = t.match(/每(?:个)?月[^\d]{0,6}(\d+(?:\.\d+)?)\s*(万)?/);
+      if (per && out.wages_owed_months) out.wages_owed_per_month = parseFloat(per[1]) * (per[2] ? 10000 : 1);
+      const owed = t.match(/(?:一共|总共|合计|共)?欠[^\d个]{0,6}(\d+(?:\.\d+)?)\s*(万)?\s*(?:元|块)/) || t.match(/(?:一共|总共|合计|共)欠[^\d]{0,4}(\d+(?:\.\d+)?)\s*(万)?(?!\s*个月)/);
       if (owed) out.wages_owed_amount = parseFloat(owed[1]) * (owed[2] ? 10000 : 1);
     }
 
@@ -286,7 +294,22 @@
     return out;
   }
 
-  const api = { SLOTS, PARAM_SLOTS, ORDER, neededSlots, nextSlot, progress, keywordExtract, addMonths, isFilled };
+  // 由已知事实推出的值（纯代码）：按月说的欠薪算出合计。返回要补进去的字段
+  function derive(f) {
+    const out = {};
+    if (Array.isArray(f.wages_owed_detail) && f.wages_owed_detail.length && !f.wages_owed_amount) {
+      const sum = f.wages_owed_detail.reduce((s, m) => s + (+m.amount > 0 ? +m.amount : 0), 0);
+      if (sum > 0) out.wages_owed_amount = Math.round(sum * 100) / 100;
+    }
+    if (+f.wages_owed_months > 0 && !f.wages_owed_amount && !out.wages_owed_amount) {
+      const per = +f.wages_owed_per_month > 0 ? +f.wages_owed_per_month : +f.monthly_wage > 0 ? +f.monthly_wage : 0;
+      if (per) out.wages_owed_amount = Math.round(+f.wages_owed_months * per * 100) / 100;
+    }
+    if ((out.wages_owed_amount || f.wages_owed_amount || +f.wages_owed_months > 0) && f.wages_owed !== 'yes') out.wages_owed = 'yes';
+    return out;
+  }
+
+  const api = { derive, SLOTS, PARAM_SLOTS, ORDER, neededSlots, nextSlot, progress, keywordExtract, addMonths, isFilled };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.LA = Object.assign(root.LA || {}, { facts: api });
 })(this);

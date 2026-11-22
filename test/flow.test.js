@@ -105,3 +105,17 @@ test('来源优先级：证照覆盖对话里说的地址，对话不覆盖证�
   D.apply('chat', { applicant_address: '苏州园区' }, st, '你补充的');
   assert.strictEqual(st.sources['applicant.address'], '身份证照片');
 });
+
+const F = require('../engine/facts.js');
+test('按月说的欠薪：代码算合计，不再追问', () => {
+  const kw = F.keywordExtract('公司欠了我3个月工资，每月9000', '2026-11-22');
+  assert.strictEqual(kw.wages_owed_months, 3);
+  assert.strictEqual(kw.wages_owed_per_month, 9000);
+  assert.strictEqual(kw.wages_owed_amount, undefined);   // 不能把「3个月」读成 3 元
+  const f = { ...kw, ...F.derive(kw) };
+  assert.strictEqual(f.wages_owed_amount, 27000);
+  assert.ok(!F.neededSlots(f).some(s => s.key === 'wages_owed_amount' && !F.isFilled(f, s.key)));
+  assert.strictEqual(F.derive({ wages_owed_detail: [{ month: '2026-08', amount: 3000 }, { month: '2026-09', amount: '5000' }] }).wages_owed_amount, 8000);
+  assert.strictEqual(F.derive({ wages_owed_months: 2, monthly_wage: 8000 }).wages_owed_amount, 16000);
+  assert.strictEqual(F.keywordExtract('一共欠了2万块工资', '2026-11-22').wages_owed_amount, 20000);
+});

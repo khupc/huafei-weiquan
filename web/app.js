@@ -22,7 +22,9 @@
   const SLOT_SCHEMA = `city: 工作所在城市，写地级市名（如 苏州、深圳），不带「市」
 separation: company_terminated|resigned|mutual|contract_expired|still_employed
 start_date / end_date / contract_signed_date: YYYY-MM-DD（只知道月份就写该月 01 日）
-monthly_wage / wages_owed_amount: 数字（元）
+monthly_wage / wages_owed_amount: 数字（元）；wages_owed_amount 只在用户直接说了欠薪总数时输出
+wages_owed_months / wages_owed_per_month: 用户按月说欠薪时（如「欠了 3 个月，每月 9000」）分别输出月数和每月金额，不要自己相乘
+wages_owed_detail: 用户逐月说了欠多少时输出数组 [{"month":"YYYY-MM","amount":数字}]，不要自己加总
 signed_contract: yes|no|later（later=入职很久后补签）
 termination_form: written|chat|oral
 termination_reason: none|misconduct|incompetence|layoff|other
@@ -38,6 +40,10 @@ user_claims: 数组，用户自己已经得出的主张（比如问过别的 AI 
 other_issues: 数组，可含 overtime|annual_leave|social_insurance|work_injury（受伤、工伤、职业病）|platform_work（外卖骑手、网约车等平台接单，或外包）|dispatch（劳务派遣）|subcontract（挂靠、包工头、违法转包分包）`;
 
   // evidenceOptions：补正时传入证据清单，模型顺带说出用户提到了哪些证据
+  function owedDetail(arr) {
+    const list = (Array.isArray(arr) ? arr : []).filter(m => m && /^\d{4}-\d{2}$/.test(m.month) && +String(m.amount).replace(/[,，元]/g, '') > 0).map(m => ({ month: m.month, amount: +String(m.amount).replace(/[,，元]/g, '') }));
+    return list.length ? { wages_owed_detail: list } : {};
+  }
   // 用户自己带来的结论：只记下来，金额由代码重算后对照
   const CLAIM_IDS = ['illegal_termination', 'economic_compensation', 'notice_pay', 'double_wage', 'unpaid_wages', 'reinstatement'];
   function pickClaims(arr) {
@@ -78,7 +84,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       try {
         const r = await sample.json(prompt, { modelTier: 'quick' });
         model.status = 'Claude';
-        if (r && typeof r === 'object') return { facts: clean(r.facts || {}), parties: pickParties(r.facts || {}), claims: pickClaims((r.facts || {}).user_claims), evidence: (evidenceOptions && Array.isArray(r.evidence) ? r.evidence.filter(e => evidenceOptions.includes(e)) : []), by: 'model' };
+        if (r && typeof r === 'object') return { facts: { ...clean(r.facts || {}), ...owedDetail((r.facts || {}).wages_owed_detail) }, parties: pickParties(r.facts || {}), claims: pickClaims((r.facts || {}).user_claims), evidence: (evidenceOptions && Array.isArray(r.evidence) ? r.evidence.filter(e => evidenceOptions.includes(e)) : []), by: 'model' };
       } catch (e) {
         if (e && e.code === 'not_granted') { model.ok = false; model.status = '关键词版（你没有授权使用 Claude）'; }
       }
@@ -251,6 +257,12 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
         }
         return changed;
       }
+      // 由已知事实推出的值（如按月数算欠薪合计），代码算，标「待确认」
+      function applyDerived() {
+        const d = F.derive(st.facts), keys = [];
+        for (const [k, v] of Object.entries(d)) if (!st.manual[k] && st.facts[k] !== v) { st.facts[k] = v; st.sources[k] = '按你说的月数和金额计算'; keys.push(k); if (W.CALC_KEYS.includes(k)) st.pending[k] = true; }
+        return keys;
+      }
       // 来源之间对不上、又会影响请求或金额时，弹卡问用户以哪个为准；选完两个值都留档
       function addAsk(a) {
         if (st.asks.some(x => x.key === a.key && x.values.some(y => y.v === a.values[1].v))) return;
@@ -266,6 +278,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       // 抽取结果整体入链：事实、当事人信息、提到的证据
       function ingest(r, source) {
         const changed = merge(r.facts, source);
+        changed.push(...applyDerived());
         const party = D.apply('chat', r.parties || {}, { facts: st.facts, manual: st.manual, applicant: st.app.applicant, respondent: st.app.respondent, sources: st.sources }, source);
         (party.asks || []).forEach(addAsk);
         const ticked = tickEvidence(r.evidence || []);
