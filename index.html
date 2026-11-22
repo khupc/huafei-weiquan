@@ -397,6 +397,16 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
         </div>
         <p class="sub">读到的信息已写进事实摘要和申请书，可以随时修改。</p>
       </section>
+      <!-- 当事人材料：和证据一起传，申请书的当事人信息由这里自动填，不留到最后 -->
+      <section class="card stack" id="party-docs">
+        <h3>双方身份材料</h3>
+        <p class="sub">申请书要写清双方信息，仲裁委立案也要身份证复印件。在这里一起传，申请书里的当事人信息会自动填好。</p>
+        <div class="row">
+          <button class="chip" :class="{on: partyDone.applicant}" @click="upload('id_card', '身份证', 'party|身份证')">你的身份证{{ files['party|身份证'] ? ' · ' + files['party|身份证'].length + ' 个文件' : '' }}</button>
+          <button class="chip" :class="{on: partyDone.respondent}" @click="upload('license', '营业执照', 'party|营业执照')">公司营业执照{{ files['party|营业执照'] ? ' · ' + files['party|营业执照'].length + ' 个文件' : '' }}</button>
+        </div>
+        <p class="sub">没有营业执照也可以：劳动合同抬头上的公司信息同样会读出来。{{ partyMissing.length ? '申请书还缺：' + partyMissing.join('、') + '。' : '申请书的当事人信息已齐。' }}</p>
+      </section>
       <section v-for="g in evidenceGroups" :key="g.group" class="card ev-group">
         <h3>{{ g.title }}</h3>
         <p class="sub">{{ g.purpose }}</p>
@@ -421,11 +431,11 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
         <span class="eyebrow">第 {{ st.app.step }} 步 / 共 3 步</span>
         <h2>{{ ['当事人信息', '仲裁请求', '事实与理由'][st.app.step - 1] }}</h2>
         <template v-if="st.app.step === 1">
-          <div class="row">
-            <button class="btn ghost" @click="upload('id_card', '身份证')">拍身份证自动填</button>
-            <button class="btn ghost" @click="upload('license', '营业执照')">传营业执照或合同，填公司信息</button>
+          <p class="sub">你在对话里说过的、证据页传过的材料，都已自动填好并标了来源，请核对，只需补上空着的。</p>
+          <div v-if="!partyDone.applicant || !partyDone.respondent" class="row">
+            <button v-if="!partyDone.applicant" class="btn ghost" @click="upload('id_card', '身份证', 'party|身份证')">还没传身份证？现在传</button>
+            <button v-if="!partyDone.respondent" class="btn ghost" @click="upload('license', '营业执照', 'party|营业执照')">还没传营业执照？现在传</button>
           </div>
-          <p class="sub">你在对话里说过的、材料上读到的，都已自动填好并标了来源，只需补上空着的。</p>
           <p class="sub" v-if="st.recognized.length">{{ st.recognized.some(r => r.busy) ? '还有材料在识别中…' : '' }}</p>
           <h3>申请人（你）</h3>
           <label class="f">姓名 <small class="src">{{ src('applicant.name') }}</small><input id="a-name" v-model="st.app.applicant.name"></label>

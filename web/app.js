@@ -453,10 +453,13 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       }
 
       // 页面跳转由 flow.gates 决定，卡住时说明缺什么
+      // 当事人信息是否已齐（证据页传身份证、营业执照后自动填）
+      const partyMissing = computed(() => W.requiredMissing(st.app, [{}]).filter(m => /^(申请人|被申请人)/.test(m)));
+      const partyDone = computed(() => ({ applicant: !partyMissing.value.some(m => /^申请人(姓名|性别|身份证号|住址)$/.test(m)), respondent: !partyMissing.value.some(m => /^被申请人/.test(m)) }));
       // 补正引导问题：来自报告里「对方可能怎么说」，只帮用户想起来，不要求逐条回答
       const guideQs = computed(() => chosen.value.flatMap(c => c.defenses).slice(0, 4).map(d => `对方可能说「${d.says}」，当时是什么情况？`));
       // 申请书缺项时，告诉用户哪份材料能自动补上
-      const fillHint = m => /^申请人(姓名|性别|身份证号|住址)$/.test(m) ? '拍身份证可自动填写' : /^被申请人/.test(m) ? '上传营业执照或劳动合同可自动填写' : '';
+      const fillHint = m => /^申请人(姓名|性别|身份证号|住址)$/.test(m) ? '在证据页传身份证可自动填写' : /^被申请人/.test(m) ? '在证据页传营业执照或劳动合同可自动填写' : '';
       // 识别卡上点「对」：这份材料读出的参数转为已确认
       function confirmRec(r) { for (const k of r.keys || []) delete st.pending[k]; r.confirmed = true; }
 
@@ -560,7 +563,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       const pct = k => totals.value.total ? (totals.value[k] / totals.value.total * 100) + '%' : '0%';
 
       return { st, ui, R, E, F, G, PAGES, model, allCities, std, stdCity, stdOrigin, imgCaps, files, upload, kindOfTag: D.kindOfTag, analysis, chosen, conflicts, totals, next, prog, factRows, evidenceGroups, arbitration,
-        answer, pick, notSure, editFact, toAnalysis, pendingKeys, confirmParams, gate, supplement, organizeEvidence, evItems, src, resolveAsk, confirmRec, guideQs, fillHint, reasonProblems, appFormat, W, toggleClaim, toggleEvidence, go, newCase, openCase, appNext, exportApp, draft, requestLines,
+        answer, pick, notSure, editFact, toAnalysis, pendingKeys, confirmParams, gate, supplement, organizeEvidence, evItems, src, resolveAsk, confirmRec, guideQs, fillHint, partyMissing, partyDone, reasonProblems, appFormat, W, toggleClaim, toggleEvidence, go, newCase, openCase, appNext, exportApp, draft, requestLines,
         save, evidenceDoc, applicationDoc, examples, useExample, fillSample, tierClass, statusClass, pct, display, labelOf, today };
     },
   }).mount('#app');
