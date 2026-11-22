@@ -47,12 +47,15 @@ test('北京区级仲裁窗口：已核 11 区有地址电话，未核的为空'
   assert.strictEqual(f.online.name, '北京市劳动人事争议调解仲裁网上服务平台');
 });
 
-test('上海：市仲裁院分流题，16 区待核；北京按模板交 2 份留 1 份', () => {
+test('上海：市仲裁院分流题，16 区通讯录待核，交 2 份留 1 份；北京同', () => {
   const G = require('../rules/regions.js');
   const sh = G.standardsFor('上海', '2026-10-01').application_format;
   assert.strictEqual(sh.triage.yes.name, '上海市劳动人事争议仲裁院');
   assert.strictEqual(Object.keys(sh.districts).length, 16);
   assert.match(sh.online_note, /不接受网上仲裁申请/);
+  assert.strictEqual(sh.triage.yes.phone, '021-31012746');
+  assert.ok(Object.values(sh.districts).every(d => d && d.pending && d.phone));
+  assert.strictEqual(P.copies(sh.copy_rule, 1).submit, 2);
   const bj = G.standardsFor('北京', '2026-10-01').application_format;
   assert.strictEqual(P.copies(bj.copy_rule, 1).submit, 2);
 });

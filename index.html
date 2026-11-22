@@ -546,11 +546,13 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
         <p><b>{{ appFormat.institution && appFormat.institution.name || arbitration }}</b></p>
         <template v-if="institution">
           <p class="sub">窗口：{{ institution.address }}<template v-if="institution.phone"><br>电话：{{ institution.phone }}</template><template v-if="institution.hours"><br>办公时间（法定工作日）：{{ institution.hours }}</template><template v-if="!institution.phone"><br>电话和办公时间还没核实，请拨打 12333 查询。</template></p>
+          <p v-if="institution.pending" class="warn">待核，去之前先打电话确认。</p>
           <p class="sub">来源：{{ institution.source }}，核对日期 {{ institution.checked }}。窗口信息会变动，出发前先打电话确认。</p>
         </template>
         <p class="sub" v-else-if="appFormat.districts && st.facts.district">这个区的窗口信息还没核实，请拨打 12333 查询。</p>
         <p class="sub" v-else-if="appFormat.districts">先选你上班所在的区。</p>
         <p class="sub" v-else>窗口地址和电话还没录入（待核）。可以拨打 12333 问「{{ st.facts.city }}劳动仲裁在哪里交」，或搜索当地人社局官网的「劳动人事争议仲裁办事指南」。市级和区县级仲裁委怎么分工各地不同，电话里一并问清。</p>
+        <p v-if="appFormat.submit_note" class="sub">{{ appFormat.submit_note }}</p>
         <p class="sub">工作地和公司所在地的仲裁委都可以受理；默认推荐工作地。</p>
       </section>
       <!-- 推荐线上的地区：平台填写对照表（按平台步骤顺序，每项可复制） -->
