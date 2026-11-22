@@ -115,8 +115,9 @@
 
   // 区间内逐月计算：整月按月工资，不满一个月按 月工资 / 21.75 × 实际工作日；最多 11 个月。
   // cutoff（可选）：时效切点，按天切，跨过切点的那个月只算切点之后的工作日。
-  function doubleWageAmount(from, to, W, cutoff) {
+  function doubleWageAmount(from, to, W, cutoff, D) {
     const P = R.PARAMS.double_wage;
+    D = D || P.default_monthly_workdays;
     let full = 0, days = 0, amount = 0;
     if (!from || !to || to < from) return { full, days, amount };
     for (let k = 0; k < P.max_months; k++) {
@@ -127,7 +128,7 @@
       const start = cutoff ? maxDate(ps, cutoff) : ps;
       if (start > pe) continue;
       if (start === ps && pe === periodEnd) { full++; amount += W; }
-      else { const n = workdays(start, pe); days += n; amount += W / P.monthly_workdays * n; }
+      else { const n = workdays(start, pe); days += n; amount += W / D * n; }
     }
     return { full, days, amount: round2(amount) };
   }
@@ -139,16 +140,17 @@
     const P = R.PARAMS.double_wage;
     const W = +facts.monthly_wage;
     const w = doubleWageWindow(facts, today);
-    const r = doubleWageAmount(w.from, w.to, W);
-    const part = r.days ? ` + ${yuan(W)} ÷ ${P.monthly_workdays} × ${r.days} 个工作日` : '';
-    const out = { amount: r.amount, window: w, full: r.full, days: r.days, notes: ['只算额外的那一倍（差额）；不满一个月的工作日按周一至周五估算，调休日未计'],
+    const D = (std && std.monthly_workdays) || P.default_monthly_workdays;
+    const r = doubleWageAmount(w.from, w.to, W, null, D);
+    const part = r.days ? ` + ${yuan(W)} ÷ ${D} × ${r.days} 个工作日` : '';
+    const out = { amount: r.amount, window: w, full: r.full, days: r.days, notes: [`只算额外的那一倍（差额）；不满一个月的按 ${D} 天/月折算，工作日按周一至周五估算，调休日未计`],
       formula: `${yuan(W)} 元/月 × ${r.full} 个月${part} = ${yuan(r.amount)} 元（${w.from} 至 ${w.to}，最多 ${P.max_months} 个月）` };
     // 保守值：月工资不含加班费；时效从「预计申请仲裁日」按天倒推一年（律师线程 2026-11-22 确认）
     const cutoff = cutoffOf(facts, today);
     const Wc = conservativeWage(facts, std);
     const cut = w.from < cutoff;
     if (Wc != null || cut) {
-      const c = doubleWageAmount(w.from, w.to, Wc != null ? Wc : W, cut ? cutoff : null);
+      const c = doubleWageAmount(w.from, w.to, Wc != null ? Wc : W, cut ? cutoff : null, D);
       out.conservative = c.amount;
       out.conservativeNote = [Wc != null ? '月工资不含加班费' : '', cut ? `只算 ${cutoff} 以后的部分（从预计申请日 ${facts.filing_date || today} 倒推一年）；如果之前向公司或劳动监察主张过权利，时效可能已中断，保守值会偏低` : ''].filter(Boolean).join('；');
     }
@@ -168,7 +170,12 @@
   function elementStatus(key, facts, evidence) {
     switch (key) {
       case 'labor_relation':
-        return facts.signed_contract === 'yes' || facts.signed_contract === 'later' || ['social', 'payroll', 'other'].includes(facts.labor_proof) || hasEvidence(evidence, 'labor_relation') ? '已满足' : '还需证据';
+        // 社保、单位账户工资流水算满足；工牌、考勤算初步满足；工作群聊天单独不够（律师线程 2026-11-22）
+        const ev = (evidence && evidence.labor_relation) || [];
+        if (facts.signed_contract === 'yes' || facts.signed_contract === 'later' || ['social', 'payroll'].includes(facts.labor_proof)
+          || ev.some(x => ['劳动合同', '社保缴费记录', '工资银行流水（单位付款）'].includes(x))) return '已满足';
+        if (facts.labor_proof === 'badge' || ev.some(x => ['工牌或工服', '考勤记录', '录用通知'].includes(x))) return '初步满足';
+        return '还需证据';
       case 'company_terminated':
         if (facts.separation === 'company_terminated') return '已满足';
         return !facts.separation ? '还需证据' : '不满足';

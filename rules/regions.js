@@ -48,11 +48,12 @@
   //   overtime_in_base:   经济补偿基数是否含加班费：'是' | '否' | '有争议'
   //   bonus_allocation:   年终奖分摊：'按 12 个月分摊' | '计入发放月' | '有争议'
   //   double_wage_limitation: 二倍工资时效：'逐月' | '整体' | '从补订或视为无固定期限之日起算'
+  //   monthly_workdays:   不满一个月折算用的月计薪天数 D，默认 21.75（不是全国法定规则，按地区参数存）
   // 没有数据的一律为空或「有争议」，页面提示「该地标准待补，可自行填写」。
-  const POLICY_FIELDS = ['overtime_in_base', 'bonus_allocation', 'double_wage_limitation'];
+  const POLICY_FIELDS = ['overtime_in_base', 'bonus_allocation', 'double_wage_limitation', 'monthly_workdays'];
   const PROVINCE_DEFAULTS = {};
   for (const p of PROVINCES) {
-    PROVINCE_DEFAULTS[p.province] = { avg_wage: {}, min_wage: [], overtime_in_base: '有争议', bonus_allocation: '有争议', double_wage_limitation: '有争议', review: '待校准' };
+    PROVINCE_DEFAULTS[p.province] = { avg_wage: {}, min_wage: [], overtime_in_base: '有争议', bonus_allocation: '有争议', double_wage_limitation: '有争议', monthly_workdays: 21.75, review: '待校准' };
   }
 
   // 市级覆盖：只写和省级默认不同的字段，例如 { '深圳': { avg_wage: { 2025: { value: 12345, scope: '职工平均' } } } }

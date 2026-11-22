@@ -41,7 +41,7 @@
       review: OK,
     },
     illegal_termination: { multiplier: 2, review: OK },
-    double_wage: { grace_months: 1, max_months: 11, monthly_workdays: 21.75, review: OK }, // 21.75 本身待复核
+    double_wage: { grace_months: 1, max_months: 11, default_monthly_workdays: 21.75, review: OK }, // D 以地区表 monthly_workdays 为准
     limitation: { years: 1, review: OK },
   };
 
@@ -115,15 +115,27 @@
   const ROUTES = {
     work_injury: {
       title: '工伤', when_issues: ['work_injury'],
-      why: '工伤要先做工伤认定和劳动能力鉴定，赔偿主要由工伤保险基金支付，和这里的计算是两条路。',
-      next: '本产品暂不支持工伤测算。建议先向当地人社部门申请工伤认定（一般在受伤后 1 年内），并咨询律师。',
+      why: '工伤要先做工伤认定和劳动能力鉴定，赔偿主要由工伤保险基金支付，和这里的计算是两条路。申请工伤认定要提交劳动关系证明（事实劳动关系也可以），没有劳动关系材料的，要先仲裁确认劳动关系。',
+      next: '本产品暂不支持工伤测算。单位应在事故发生或职业病确诊之日起 30 日内申请工伤认定；单位没申请的，你本人、近亲属或工会最迟 1 年内可以直接向用人单位所在地的社保行政部门申请，越早越好。建议同时咨询律师。',
       review: '待校准',
     },
     confirm_relation: {
       title: '先确认劳动关系', when_issues: ['platform_work'], when_facts: { labor_proof: ['none'] },
-      why: '平台接单（外卖、网约车等）、外包、劳务派遣、挂靠，或者手上没有任何能证明在这家公司上班的材料时，是否存在劳动关系、和谁存在劳动关系会是第一个争点。',
-      next: '可以把「确认与某公司存在劳动关系」列为第一项仲裁请求，下面的金额都以它成立为前提。',
-      review: '待校准',
+      why: '在平台接单（外卖、网约车等）、外包，或者手上没有任何能证明在这家公司上班的材料时，是否存在劳动关系、和谁存在劳动关系会是第一个争点。',
+      next: '可以把「确认与某公司存在劳动关系」列为第一项仲裁请求，下面的金额都以它成立为前提。注意：请求里有确认劳动关系的，整个案子都不是一裁终局。',
+      review: OK,
+    },
+    dispatch: {
+      title: '劳务派遣', when_issues: ['dispatch'],
+      why: '劳务派遣时，和你签合同的派遣公司是用人单位，你实际上班的公司是用工单位。',
+      next: '申请仲裁时可以把派遣公司和用工单位列为共同被申请人。',
+      review: OK,
+    },
+    subcontract: {
+      title: '挂靠或违法转包、分包', when_issues: ['subcontract'],
+      why: '包工头挂靠或违法转包、分包时，发包方或被挂靠单位要承担用工主体责任，但这不等于和它们存在劳动关系。',
+      next: '这类情况的被申请人和请求怎么写比较复杂，建议咨询律师。工程建设领域欠薪还可以找总包单位。',
+      review: OK,
     },
   };
 

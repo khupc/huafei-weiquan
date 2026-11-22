@@ -23,8 +23,8 @@ signed_exit_doc: yes|no（离开时是否签过离职协议/申请等文件）
 hr_role: yes|no（职务是否负责人事或属于管理层）
 refused_to_sign: yes|no（公司是否书面通知签合同而本人没签）
 company_name: 字符串
-labor_proof: social|payroll|other|none（没签合同时，能证明劳动关系的最有力材料）
-other_issues: 数组，可含 overtime|annual_leave|social_insurance|work_injury（受伤、工伤、职业病）|platform_work（外卖骑手、网约车等平台接单，外包、劳务派遣、挂靠）`;
+labor_proof: social|payroll|badge|chat|none（没签合同时，能证明劳动关系的最有力材料：社保记录 / 单位账户发的工资流水 / 工牌工作证或考勤 / 只有工作群聊天 / 都没有）
+other_issues: 数组，可含 overtime|annual_leave|social_insurance|work_injury（受伤、工伤、职业病）|platform_work（外卖骑手、网约车等平台接单，或外包）|dispatch（劳务派遣）|subcontract（挂靠、包工头、违法转包分包）`;
 
   async function extract(text, facts, currentSlot) {
     const sample = await samplePromise;
@@ -58,7 +58,7 @@ ${SLOT_SCHEMA}
   function clean(obj) {
     const out = {};
     for (const [k, v] of Object.entries(obj)) {
-      if (k === 'other_issues' && Array.isArray(v)) { out[k] = v.filter(x => ['overtime', 'annual_leave', 'social_insurance', 'work_injury', 'platform_work'].includes(x)); continue; }
+      if (k === 'other_issues' && Array.isArray(v)) { out[k] = v.filter(x => ['overtime', 'annual_leave', 'social_insurance', 'work_injury', 'platform_work', 'dispatch', 'subcontract'].includes(x)); continue; }
       const s = F.SLOTS[k];
       if (!s || v === null || v === '') continue;
       if (s.type === 'choice' && !s.options.some(o => o.value === v)) continue;
@@ -131,7 +131,7 @@ ${SLOT_SCHEMA}
   function blankCase() {
     return {
       id: 'c' + Date.now(), updated: null, page: 'P1', facts: {}, manual: {}, uncertain: {},
-      chat: [{ role: 'ai', text: GREETING }], evidence: { labor_relation: [], wage: [], termination: [] }, selected: [], avgWage: null, minWage: null,
+      chat: [{ role: 'ai', text: GREETING }], evidence: { labor_relation: [], wage: [], termination: [] }, selected: [], avgWage: null, minWage: null, regAvgWage: null, regMinWage: null,
       app: { applicant: { name: '', gender: '', id_no: '', address: '', phone: '' }, respondent: { name: '', address: '', legal_rep: '', credit_code: '' }, reasons: '', step: 1 },
     };
   }
@@ -149,15 +149,22 @@ ${SLOT_SCHEMA}
 
       const allCities = G.PROVINCES.flatMap(p => p.cities.map(c => ({ city: c, province: p.province })));
       // 社平工资按「用人单位所在」城市取，最低工资同；年度取解除时的上年度（校准文档 L-04、4.1）
-      const stdCity = computed(() => (st.facts.company_city && G.provinceOf(st.facts.company_city)) ? st.facts.company_city : st.facts.city);
-      const std = computed(() => {
-        const s = stdCity.value ? G.standardsFor(stdCity.value, st.facts.end_date || today()) : null;
+      // 社平工资和最低工资按劳动合同履行地（工作城市）取；注册地标准更高且合同约定按注册地执行时，才取注册地（实施条例第 14 条）
+      function stdOf(city, avg, min) {
+        const s = city && G.provinceOf(city) ? G.standardsFor(city, st.facts.end_date || today()) : null;
         if (!s) return null;
         const out = { ...s, origin: { ...s.origin } };
-        if (st.avgWage) { out.avg_wage = +st.avgWage; out.origin.avg_wage = '你填写'; }
-        if (st.minWage) { out.min_wage = +st.minWage; out.origin.min_wage = '你填写'; }
+        if (avg) { out.avg_wage = +avg; out.origin.avg_wage = '你填写'; }
+        if (min) { out.min_wage = +min; out.origin.min_wage = '你填写'; }
         return out;
+      }
+      const std = computed(() => {
+        const work = stdOf(st.facts.city, st.avgWage, st.minWage);
+        if (!st.facts.agreed_registered_std) return work;
+        const reg = stdOf(st.facts.company_city, st.regAvgWage, st.regMinWage);
+        return reg && reg.avg_wage && (!work || !work.avg_wage || reg.avg_wage > work.avg_wage) ? reg : work;
       });
+      const stdCity = computed(() => std.value ? std.value.city : st.facts.city);
       const analysis = computed(() => E.analyze(st.facts, std.value, st.evidence, today()));
       const chosen = computed(() => analysis.value.claims.filter(c => st.selected.includes(c.id)));
       const conflicts = computed(() => E.conflicts(st.selected));
@@ -361,10 +368,11 @@ ${SLOT_SCHEMA}
       function fillSample() { ui.reply = '在苏州做了3年4个月仓库主管，月薪9000，上个月被口头通知明天别来了，没给理由，没签过劳动合同，工资每月微信转账'; }
 
       const tierClass = t => ({ 基本稳: 'solid', 需补证: 'need', 有争议: 'dispute' }[t]);
-      const statusClass = s => ({ 已满足: 'ok', 还需证据: 'need', 不满足: 'no' }[s]);
+      const statusClass = s => ({ 已满足: 'ok', 初步满足: 'partial', 还需证据: 'need', 不满足: 'no' }[s]);
+      const stdOrigin = k => { const w = stdOf(st.facts.city, st.avgWage, st.minWage); return w ? w.origin[k] : '待补'; };
       const pct = k => totals.value.total ? (totals.value[k] / totals.value.total * 100) + '%' : '0%';
 
-      return { st, ui, R, E, F, G, PAGES, model, allCities, std, stdCity, analysis, chosen, conflicts, totals, next, prog, factRows, evidenceGroups, arbitration,
+      return { st, ui, R, E, F, G, PAGES, model, allCities, std, stdCity, stdOrigin, analysis, chosen, conflicts, totals, next, prog, factRows, evidenceGroups, arbitration,
         answer, pick, notSure, editFact, toAnalysis, toggleClaim, toggleEvidence, go, newCase, openCase, appNext, exportApp, draft, requestLines,
         save, evidenceDoc, applicationDoc, examples, useExample, fillSample, tierClass, statusClass, pct, display, labelOf, today };
     },

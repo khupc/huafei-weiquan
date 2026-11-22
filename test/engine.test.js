@@ -199,3 +199,20 @@ test('分流：工伤、平台用工、没有劳动关系材料', () => {
   const kw = F.keywordExtract('我是外卖骑手，送餐时摔伤了', TODAY);
   assert.deepStrictEqual(kw.other_issues.sort(), ['platform_work', 'work_injury']);
 });
+
+test('劳动关系材料：社保/工资流水满足，工牌考勤初步满足，工作群聊天不够', () => {
+  const st = p => E.analyze({ ...sample, labor_proof: p }, null, {}, TODAY).claims[0].elements.find(e => e.key === 'labor_relation').status;
+  assert.strictEqual(st('social'), '已满足');
+  assert.strictEqual(st('badge'), '初步满足');
+  assert.strictEqual(st('chat'), '还需证据');
+});
+test('月计薪天数 D 取地区参数', () => {
+  const f = { start_date: '2024-03-10', end_date: '2024-12-20', monthly_wage: 8000, signed_contract: 'no' };
+  const r = E.doubleWage(f, { monthly_workdays: 20 }, '2024-12-25');
+  assert.strictEqual(r.amount, Math.round((8 * 8000 + 8000 / 20 * 9) * 100) / 100);
+});
+test('分流：派遣、挂靠单列，不触发确认劳动关系', () => {
+  const kw = F.keywordExtract('我是劳务派遣过去的', TODAY);
+  assert.deepStrictEqual(E.analyze(kw, null, {}, TODAY).routes.map(r => r.id), ['dispatch']);
+  assert.deepStrictEqual(E.analyze(F.keywordExtract('跟着包工头干活', TODAY), null, {}, TODAY).routes.map(r => r.id), ['subcontract']);
+});

@@ -107,7 +107,8 @@
       options: [
         { label: '有社保缴费记录', value: 'social' },
         { label: '有公司账户发的工资流水', value: 'payroll' },
-        { label: '有工牌、考勤或工作群', value: 'other' },
+        { label: '有工牌、工作证或考勤记录', value: 'badge' },
+        { label: '只有工作群聊天', value: 'chat' },
         { label: '都没有', value: 'none' },
       ],
     },
@@ -138,7 +139,7 @@
   // 不在问答里问、在测算页填的参数
   const PARAM_SLOTS = {
     monthly_overtime: { label: '月工资里每月加班费（选填）', type: 'number' },
-    company_city: { label: '公司所在城市（取社平工资用）', type: 'text' },
+    company_city: { label: '公司注册地城市', type: 'text' },
     filing_date: { label: '预计申请仲裁日（算时效用，默认今天）', type: 'date' },
   };
 
@@ -257,7 +258,9 @@
     if (/年假/.test(t)) issues.push('annual_leave');
     if (/社保|五险/.test(t)) issues.push('social_insurance');
     if (/受伤|工伤|摔伤|砸伤|骨折|职业病/.test(t)) issues.push('work_injury');
-    if (/外卖|骑手|网约车|跑腿|平台派单|外包|劳务派遣|派遣|挂靠/.test(t)) issues.push('platform_work');
+    if (/外卖|骑手|网约车|跑腿|平台派单|平台接单|外包/.test(t)) issues.push('platform_work');
+    if (/劳务派遣|派遣/.test(t)) issues.push('dispatch');
+    if (/挂靠|包工头|转包|分包/.test(t)) issues.push('subcontract');
     if (issues.length) out.other_issues = issues;
 
     const company = t.match(/([一-龥]{2,30}(?:有限责任公司|股份有限公司|有限公司|集团))/);
