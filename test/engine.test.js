@@ -105,11 +105,29 @@ test('分析：公司说违纪 → 有争议', () => {
   assert.strictEqual(a.claims.find(c => c.id === 'illegal_termination').tier, '有争议');
 });
 
-test('分析：自己辞职不列违法解除；欠薪 + 辞职识别出被迫辞职（暂不支持）', () => {
+test('分析：自己辞职不列违法解除；欠薪 + 辞职按被迫辞职列经济补偿 N（有争议）', () => {
   const a = E.analyze({ ...sample, separation: 'resigned', wages_owed: 'yes', wages_owed_amount: 12000 }, null, {}, TODAY);
   assert.ok(!a.claims.some(c => c.id === 'illegal_termination'));
   assert.strictEqual(a.claims.find(c => c.id === 'unpaid_wages').calc.amount, 12000);
-  assert.ok(a.unsupported.some(u => u.id === 'constructive_dismissal'));
+  const n = a.claims.find(c => c.id === 'economic_compensation');
+  assert.strictEqual(n.calc.amount, 31500);
+  assert.strictEqual(n.tier, '有争议');
+});
+test('补偿判定：2N / N / N+代通知金 / 0', () => {
+  const t = f => E.severance(f).type;
+  assert.strictEqual(t({ separation: 'company_terminated', termination_reason: 'none' }), '2N');
+  assert.strictEqual(t({ separation: 'company_terminated', termination_reason: 'incompetence', notice_30days: 'no' }), 'N+notice');
+  assert.strictEqual(t({ separation: 'company_terminated', termination_reason: 'layoff' }), 'N');
+  assert.strictEqual(t({ separation: 'mutual', mutual_initiator: 'company' }), 'N');
+  assert.strictEqual(t({ separation: 'mutual', mutual_initiator: 'employee' }), '0');
+  assert.strictEqual(t({ separation: 'resigned' }), '0');
+});
+test('不胜任解除且没提前通知：列出 N 和代通知金，和 2N 互斥', () => {
+  const a = E.analyze({ ...sample, termination_reason: 'incompetence', notice_30days: 'no' }, null, {}, TODAY);
+  const ids = a.claims.map(c => c.id);
+  assert.ok(ids.includes('economic_compensation') && ids.includes('notice_pay') && ids.includes('illegal_termination'));
+  assert.strictEqual(a.claims.find(c => c.id === 'notice_pay').calc.amount, 9000);
+  assert.strictEqual(E.conflicts(['illegal_termination', 'notice_pay']).length, 1);
 });
 
 test('互斥：赔偿金和恢复劳动关系', () => {
@@ -174,7 +192,7 @@ test('预计申请日推后，时效争议随之出现', () => {
 
 test('模块驱动追问：同一事实只问一次，并记下哪些请求要用', () => {
   const s = F.neededSlots({ city: '苏州' }).find(x => x.key === 'start_date');
-  assert.deepStrictEqual([...new Set(s.usedBy)].sort(), ['未签书面劳动合同二倍工资差额', '违法解除劳动合同赔偿金'].sort());
+  assert.deepStrictEqual([...new Set(s.usedBy)].sort(), ['经济补偿（N）', '未签书面劳动合同二倍工资差额', '违法解除劳动合同赔偿金'].sort());
 });
 test('模块排除后，它独有的事实不再问', () => {
   const keys = f => F.neededSlots(f).map(x => x.key);

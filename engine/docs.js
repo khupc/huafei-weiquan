@@ -7,7 +7,7 @@
     id_card: { title: '身份证', fields: ['applicant_name', 'applicant_gender', 'applicant_id_no', 'applicant_address'] },
     license: { title: '营业执照', fields: ['company_name', 'company_address', 'legal_rep', 'credit_code'] },
     termination: { title: '解除通知', fields: ['company_name', 'end_date', 'termination_reason_text'] },
-    wage: { title: '工资记录', fields: ['company_name', 'monthly_wage', 'applicant_name'] },
+    wage: { title: '工资记录', fields: ['company_name', 'months', 'applicant_name'] },
     social: { title: '社保记录', fields: ['company_name', 'applicant_name', 'applicant_id_no', 'start_date'] },
     other: { title: '材料', fields: ['company_name', 'applicant_name'] },
   };
@@ -25,6 +25,7 @@
     company_name: '用人单位全称', company_address: '用人单位住所/地址', legal_rep: '法定代表人姓名', credit_code: '统一社会信用代码（18 位）',
     applicant_name: '劳动者姓名', applicant_gender: '劳动者性别（男/女）', applicant_id_no: '劳动者身份证号', applicant_address: '劳动者住址',
     start_date: '入职或合同起始日期 YYYY-MM-DD', end_date: '解除或离职日期 YYYY-MM-DD', monthly_wage: '月工资（数字，元，税前应发）',
+    months: '逐月工资，数组 [{"month":"YYYY-MM","gross":应发数字,"net":实发数字}]；只列照片上看得到的月份，看不清的数字不要写',
     termination_reason_text: '单位写明的解除理由（原文摘录，30 字以内）',
   };
 
@@ -35,6 +36,15 @@
 ${k.fields.map(f => `${f}: ${FIELD_DESC[f]}`).join('\n')}
 另外输出 doc_ok：照片是否确实是「${tag || k.title}」（true/false）。
 只输出 JSON，例如 {"doc_ok": true, "company_name": "..."}`;
+  }
+
+  // 月工资（经济补偿基数）= 最近 12 个月应发工资的平均数。模型只抄每月应发/实发，平均数由这里算
+  function averageGross(months) {
+    const n = x => +String(x == null ? '' : x).replace(/[,，元\s]/g, '');
+    const ok = (Array.isArray(months) ? months : []).filter(m => m && /^\d{4}-\d{2}$/.test(m.month) && n(m.gross) > 0);
+    const last = [...new Map(ok.map(m => [m.month, n(m.gross)])).entries()].sort((a, b) => b[0] < a[0] ? -1 : 1).slice(0, 12);
+    if (!last.length) return null;
+    return { value: Math.round(last.reduce((s, m) => s + m[1], 0) / last.length * 100) / 100, months: last.length, from: last[last.length - 1][0], to: last[0][0] };
   }
 
   // 把识别结果写进案件。state = { facts, manual, applicant, respondent }，原地修改，返回写了什么、哪些有矛盾。
@@ -65,16 +75,17 @@ ${k.fields.map(f => `${f}: ${FIELD_DESC[f]}`).join('\n')}
     // 书面材料上的日期比口头回忆可靠：合同、社保上的入职日期，解除通知上的离职日期，直接更新并提示
     fact('start_date', date(d.start_date), kind === 'contract' || kind === 'social');
     fact('end_date', date(d.end_date), kind === 'termination');
-    fact('monthly_wage', num(d.monthly_wage), false);
+    const avg = kind === 'wage' ? averageGross(d.months) : null;
+    fact('monthly_wage', avg ? avg.value : num(d.monthly_wage), false);
     if (kind === 'contract') {
       if (!state.facts.signed_contract && !state.manual.signed_contract) { state.facts.signed_contract = 'yes'; filled.push('已签劳动合同'); }
       else if (state.facts.signed_contract === 'no') conflicts.push('你上传了劳动合同，但之前说没签过，请在事实摘要里确认（签过的话就不能主张二倍工资）');
     }
     if (kind === 'termination' && !state.facts.termination_form && !state.manual.termination_form) { state.facts.termination_form = 'written'; filled.push('辞退方式：书面通知'); }
-    return { filled: [...new Set(filled)], conflicts, reason: d.termination_reason_text || null };
+    return { filled: [...new Set(filled)], conflicts, reason: d.termination_reason_text || null, wage: avg };
   }
 
-  const api = { KINDS, TAG_KIND, kindOfTag, prompt, apply };
+  const api = { KINDS, TAG_KIND, kindOfTag, prompt, apply, averageGross };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.LA = Object.assign(root.LA || {}, { docs: api });
 })(this);

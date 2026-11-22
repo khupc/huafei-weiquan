@@ -73,6 +73,24 @@
         { label: '其他理由', value: 'other' },
       ],
     },
+    mutual_initiator: {
+      label: '协商离职是谁先提的', type: 'choice', when: f => f.separation === 'mutual',
+      ask: '协商离职是谁先提出来的？',
+      alt: '换个问法：是公司先找你谈让你走，还是你先说想走？',
+      options: [
+        { label: '公司先提的', value: 'company' },
+        { label: '我先提的', value: 'employee' },
+      ],
+    },
+    notice_30days: {
+      label: '是否提前 30 天书面通知', type: 'choice', when: f => f.separation === 'company_terminated' && f.termination_reason === 'incompetence',
+      ask: '公司是提前 30 天书面通知你要解除的吗？',
+      alt: '换个问法：从公司书面告诉你要解除，到你最后一天上班，隔了有没有一个月？',
+      options: [
+        { label: '没有提前通知', value: 'no' },
+        { label: '提前 30 天书面通知了', value: 'yes' },
+      ],
+    },
     signed_exit_doc: {
       label: '是否签过离职文件', type: 'choice', when: f => f.separation === 'company_terminated',
       ask: '离开时你有没有签过任何文件，比如离职协议、离职申请、交接单？',
@@ -134,7 +152,7 @@
   };
 
   const ORDER = ['city', 'separation', 'start_date', 'end_date', 'monthly_wage', 'signed_contract', 'contract_signed_date',
-    'termination_form', 'termination_reason', 'signed_exit_doc', 'hr_role', 'refused_to_sign', 'labor_proof', 'wages_owed', 'wages_owed_amount', 'company_name'];
+    'mutual_initiator', 'termination_form', 'termination_reason', 'notice_30days', 'signed_exit_doc', 'hr_role', 'refused_to_sign', 'labor_proof', 'wages_owed', 'wages_owed_amount', 'company_name'];
 
   // 不在问答里问、在测算页填的参数
   const PARAM_SLOTS = {

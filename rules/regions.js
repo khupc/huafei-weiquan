@@ -50,10 +50,12 @@
   //   double_wage_limitation: 二倍工资时效：'逐月' | '整体' | '从补订或视为无固定期限之日起算'
   //   monthly_workdays:   不满一个月折算用的月计薪天数 D，默认 21.75（不是全国法定规则，按地区参数存）
   // 没有数据的一律为空或「有争议」，页面提示「该地标准待补，可自行填写」。
-  const POLICY_FIELDS = ['overtime_in_base', 'bonus_allocation', 'double_wage_limitation', 'monthly_workdays'];
+  // application_format：申请书格式与份数。法定栏目全国统一（调解仲裁法第 28 条），格式、份数、是否线上立案各地不同，按地区填
+  const POLICY_FIELDS = ['overtime_in_base', 'bonus_allocation', 'double_wage_limitation', 'monthly_workdays', 'application_format'];
+  const DEFAULT_APP_FORMAT = { copies: '正本 1 份，并按被申请人人数提交副本', template: null, online: null, note: '格式和份数以当地仲裁委要求为准' };
   const PROVINCE_DEFAULTS = {};
   for (const p of PROVINCES) {
-    PROVINCE_DEFAULTS[p.province] = { avg_wage: {}, min_wage: [], overtime_in_base: '有争议', bonus_allocation: '有争议', double_wage_limitation: '有争议', monthly_workdays: 21.75, review: '待校准' };
+    PROVINCE_DEFAULTS[p.province] = { avg_wage: {}, min_wage: [], overtime_in_base: '有争议', bonus_allocation: '有争议', double_wage_limitation: '有争议', monthly_workdays: 21.75, application_format: DEFAULT_APP_FORMAT, review: '待校准' };
   }
 
   // 市级覆盖：只写和省级默认不同的字段，例如 { '深圳': { avg_wage: { 2025: { value: 12345, scope: '职工平均' } } } }

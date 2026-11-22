@@ -146,7 +146,7 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
         <button v-if="st.page !== 'P1'" class="icon-btn" @click="go('P1')">补充事实</button>
       </div>
       <nav class="steps" v-if="st.chat.some(m => m.role === 'user')">
-        <button v-for="p in PAGES" :key="p.id" :class="{on: st.page === p.id}" :disabled="p.id !== 'P1' && p.id !== 'P2' && !st.selected.length" @click="p.id === 'P2' ? toAnalysis() : go(p.id)">{{ p.name }}</button>
+        <button v-for="p in PAGES" :key="p.id" :class="{on: st.page === p.id}" :disabled="!gate[p.id].open" :title="gate[p.id].why.join('；')" @click="p.id === 'P2' ? toAnalysis() : go(p.id)">{{ p.name }}</button>
       </nav>
     </div>
   </header>
@@ -194,7 +194,7 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
                 <input v-else :id="'f-' + r.key" :list="r.type === 'city' ? 'city-options' : null" :type="r.type === 'number' ? 'number' : r.type === 'date' ? 'date' : 'text'" :value="r.value || ''" @change="e => editFact(r.key, e.target.value)">
               </div>
             </div>
-            <button class="btn block" @click="toAnalysis">确认事实，看能主张什么</button>
+            <button class="btn block" @click="toAnalysis(true)">确认事实，看能主张什么</button>
           </div>
         </template>
         <div v-if="!st.chat.some(m => m.role === 'user')" class="stack">
@@ -223,6 +223,10 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
         <p class="sub">{{ r.why }}</p>
         <p class="sub"><b>建议：</b>{{ r.next }}</p>
       </section>
+      <section v-if="analysis.severance && analysis.severance.why" class="card stack">
+        <h3>按你说的离职方式：{{ {'2N': '违法解除赔偿金 2N', N: '经济补偿 N', 'N+notice': '经济补偿 N + 代通知金', '0': '一般没有经济补偿'}[analysis.severance.type] || '还要补充事实' }}</h3>
+        <p class="sub">{{ analysis.severance.why }}</p>
+      </section>
       <section class="card">
         <h2>你可以主张这些</h2>
         <p class="sub">一个案子可以同时主张多项。下面是根据你说的事实对照法条列出的请求，每项单独标把握程度，勾选要主张的，金额在下一步算。</p>
@@ -237,7 +241,7 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
         <div class="els">
           <div v-for="e in c.elements" :key="e.key" class="el"><span>{{ e.label }}</span><span :class="statusClass(e.status)">{{ e.status }}</span></div>
         </div>
-        <div v-if="c.calc" class="row"><span class="sub grow">估算可主张</span><span class="amount">{{ c.calc.amount != null ? E.yuan(c.calc.amount) + ' 元' : '缺' + c.calc.lack.join('、') }}</span></div>
+        <div v-if="c.calc" class="row"><span class="sub grow">估算可主张</span><span class="amount">{{ pendingKeys.length ? '确认参数后计算' : c.calc.amount != null ? E.yuan(c.calc.amount) + ' 元' : '缺' + c.calc.lack.join('、') }}</span></div>
         <div v-for="d in c.disputes" class="warn">争议点：{{ d }}</div>
         <details>
           <summary>依据的法条（{{ c.laws.length }} 条）</summary>
@@ -257,7 +261,11 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
     <template v-if="st.page === 'P3'">
       <section class="card stack">
         <h2>金额测算</h2>
-        <p class="sub">金额全部按固定公式计算，改任何参数都会马上重算。这里的数是「可主张」的数额，不等于最终能拿到的。</p>
+        <p class="sub">金额全部由代码按固定公式计算，AI 不参与算数。改任何参数都会马上重算。这里的数是「可主张」的数额，不等于最终能拿到的。</p>
+        <div v-if="pendingKeys.length" class="warn stack">
+          <span>下面这些是 AI 从你的话或材料里读出来的，请核对，确认后才算金额：<b>{{ pendingKeys.map(k => (F.SLOTS[k] || F.PARAM_SLOTS[k]).label + ' ' + display(k, st.facts[k])).join('、') }}</b></span>
+          <button id="confirm-params" class="btn" @click="confirmParams">核对无误，确认</button>
+        </div>
         <div class="params">
           <label class="f">城市<input id="p-city" :value="st.facts.city" disabled></label>
           <label v-for="k in ['monthly_wage', 'start_date', 'end_date', 'contract_signed_date', 'wages_owed_amount'].filter(k => !F.SLOTS[k].when || F.SLOTS[k].when(st.facts))" :key="k" class="f">
@@ -282,7 +290,8 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
           <p class="sub" style="grid-column:1/-1">社平工资和最低工资按工作地取；只有注册地标准更高、且合同约定按注册地执行时，才取注册地。当前取：{{ stdCity }}。</p>
         </div>
       </section>
-      <section class="card">
+      <section v-if="pendingKeys.length" class="card sub">参数确认后显示金额。</section>
+      <section v-else class="card">
         <div v-for="c in chosen" :key="c.id" class="calc-line">
           <div class="row"><b class="grow">{{ c.title }}</b><span class="amount">{{ c.calc ? (c.calc.amount != null ? E.yuan(c.calc.amount) + ' 元' : '—') : '不涉及金额' }}</span></div>
           <div v-if="c.calc && c.calc.formula" class="formula">{{ c.calc.formula }}</div>
@@ -389,7 +398,7 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
           <h3>被申请人（公司）</h3>
           <label class="f">名称<input id="r-name" v-model="st.app.respondent.name"></label>
           <label class="f">住所<input id="r-addr" v-model="st.app.respondent.address"></label>
-          <label class="f">法定代表人（选填）<input id="r-rep" v-model="st.app.respondent.legal_rep"></label>
+          <label class="f">法定代表人<input id="r-rep" v-model="st.app.respondent.legal_rep"></label>
           <label class="f">统一社会信用代码（选填）<input id="r-code" v-model="st.app.respondent.credit_code"></label>
         </template>
         <template v-if="st.app.step === 2">
@@ -398,7 +407,8 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
         </template>
         <template v-if="st.app.step === 3">
           <textarea id="reasons" v-model="st.app.reasons" style="min-height:220px"></textarea>
-          <div class="row"><span class="sub grow">{{ ui.busy ? '正在起草…' : '根据事实摘要起草，请逐段核对修改。' }}</span><button class="btn plain" :disabled="ui.busy" @click="draft">重新起草</button></div>
+          <div v-for="p in reasonProblems" class="warn">请核对：{{ p }}。金额只写在「仲裁请求」里，事实与理由里的日期应和事实摘要一致。</div>
+          <div class="row"><span class="sub grow">{{ ui.busy ? '正在起草…' : 'AI 只根据你确认过的事实润色，不写金额，请逐段核对修改。' }}</span><button class="btn plain" :disabled="ui.busy" @click="draft">重新起草</button></div>
         </template>
         <div v-if="ui.missing.length" class="danger">请补充：{{ ui.missing.join('、') }}</div>
         <div class="row">
@@ -409,7 +419,7 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
       </section>
       <section v-if="st.app.step === 3" class="card stack">
         <h3>提交指引</h3>
-        <p class="sub">交到：{{ arbitration }}。一般需要申请书一式若干份（按被申请人人数加一）、身份证复印件、证据材料复印件。证据要写明来源，有证人的写明姓名和住所。各地仲裁委的格式和是否支持线上立案不同，请以当地为准。</p>
+        <p class="sub">交到：{{ arbitration }}。申请书{{ appFormat.copies || '正本 1 份，并按被申请人人数提交副本' }}，另附身份证复印件、证据材料复印件。证据要写明来源，有证人的写明姓名和住所。{{ appFormat.note || '格式和份数以当地仲裁委要求为准' }}。</p>
       </section>
     </template>
 
@@ -430,4 +440,5 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
 <script src="engine/facts.js"></script>
 <script src="engine/engine.js"></script>
 <script src="engine/docs.js"></script>
+<script src="engine/flow.js"></script>
 <script src="web/app.js"></script>

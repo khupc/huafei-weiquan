@@ -1,7 +1,9 @@
 // 劳动仲裁 H5 测试版：页面状态与流程（P0–P6）。
-// 金额、分档、法条都来自 engine/ 和 rules/；模型只用来从大白话里抽取事实、起草「事实与理由」。
+// 三明治架构：两头靠模型吞吐非标信息（口述/照片 → 结构化参数；事实与理由润色），
+// 中间靠纯代码锁死确定性（金额 engine.js、流程解锁 flow.js、文书句式 flow.js）。
+// 模型读出的计算参数先进 st.pending，用户确认后才出金额；模型永远不直接给用户赔偿数字。
 (function () {
-  const { rules: R, regions: G, facts: F, engine: E, docs: D } = window.LA;
+  const { rules: R, regions: G, facts: F, engine: E, docs: D, flow: W } = window.LA;
   const { createApp, reactive, computed, watch, nextTick } = Vue;
   const today = () => new Date().toISOString().slice(0, 10);
 
@@ -41,14 +43,13 @@ other_issues: 数组，可含 overtime|annual_leave|social_insurance|work_injury
 ${currentSlot ? `刚才问用户的问题是：「${currentSlot.ask}」（对应字段 ${currentSlot.key}）。\n` : ''}已知事实：${JSON.stringify(facts)}
 字段与取值：
 ${SLOT_SCHEMA}
-另外输出 recap：一句话复述你听懂的新事实（中文，口语，不超过 40 字；没有新事实就输出空字符串）。
-输出格式：{"facts": {...}, "recap": "..."}
+输出格式：{"facts": {...}}
 
 用户说：${text}`;
       try {
         const r = await sample.json(prompt, { modelTier: 'quick' });
         model.status = 'Claude';
-        if (r && typeof r === 'object') return { facts: clean(r.facts || {}), recap: r.recap || '', by: 'model' };
+        if (r && typeof r === 'object') return { facts: clean(r.facts || {}), by: 'model' };
       } catch (e) {
         if (e && e.code === 'not_granted') { model.ok = false; model.status = '关键词版（你没有授权使用 Claude）'; }
       }
@@ -57,7 +58,7 @@ ${SLOT_SCHEMA}
     const city = findCity(text);
     if (city) kw.city = city;
     if (currentSlot && !kw[currentSlot.key]) Object.assign(kw, directAnswer(currentSlot, text));
-    return { facts: kw, recap: '', by: 'keyword' };
+    return { facts: kw, by: 'keyword' };
   }
 
   // 只收清单里有的字段和合法取值
@@ -104,11 +105,17 @@ ${SLOT_SCHEMA}
     const fallback = templateReasons(st, claims);
     const sample = await samplePromise;
     if (!sample) return fallback;
-    const prompt = `请为劳动仲裁申请书起草「事实与理由」部分。要求：第三人称称「申请人」「被申请人」；按时间顺序陈述事实；只使用下面给出的事实，不要编造；不要写具体法条原文；金额照抄下面的数字；最后一段写「为维护申请人的合法权益，特依法申请仲裁，请求支持申请人的仲裁请求。」；300 字以内；只输出正文。
-事实：${JSON.stringify(st.facts)}
-仲裁请求：${claims.map(c => c.title + (c.calc && c.calc.amount ? ' ' + E.yuan(c.calc.amount) + ' 元' : '')).join('；')}
-城市：${st.facts.city}`;
-    try { const r = await sample(prompt, { cache: false }); return r.text.trim() || fallback; } catch (e) { return fallback; }
+    // 只给模型用户确认过的事实；不给金额，也不许它写金额（金额只在「仲裁请求」里由代码填）
+    const facts = Object.fromEntries(Object.entries(st.facts).filter(([k]) => !(st.pending || {})[k] && !['monthly_wage', 'wages_owed_amount', 'monthly_overtime'].includes(k)));
+    const prompt = `请为劳动仲裁申请书润色「事实与理由」部分。要求：第三人称称「申请人」「被申请人」；按时间顺序陈述事实；只使用下面给出的事实，不要补充任何没给出的事实、日期或数字；不要写任何金额；不要做法律定性，不要写法条；最后一段写「为维护申请人的合法权益，特依法申请仲裁，请求支持申请人的仲裁请求。」；300 字以内；只输出正文。
+事实：${JSON.stringify(facts)}
+仲裁请求事项：${claims.map(c => c.title).join('；')}`;
+    try {
+      const r = await sample(prompt, { cache: false });
+      const text = (r.text || '').trim();
+      // 代码校验：出现金额或事实里没有的日期，就不用模型稿，退回代码模板
+      return text && !W.checkReasons(text, st.facts).length ? text : fallback;
+    } catch (e) { return fallback; }
   }
 
   function templateReasons(st, claims) {
@@ -136,7 +143,7 @@ ${SLOT_SCHEMA}
 
   function blankCase() {
     return {
-      id: 'c' + Date.now(), updated: null, page: 'P1', facts: {}, manual: {}, uncertain: {},
+      id: 'c' + Date.now(), updated: null, page: 'P1', facts: {}, manual: {}, uncertain: {}, pending: {},
       chat: [{ role: 'ai', text: GREETING }], evidence: { labor_relation: [], wage: [], termination: [] }, selected: [], recognized: [], avgWage: null, minWage: null, regAvgWage: null, regMinWage: null,
       app: { applicant: { name: '', gender: '', id_no: '', address: '', phone: '' }, respondent: { name: '', address: '', legal_rep: '', credit_code: '' }, reasons: '', step: 1 },
     };
@@ -198,7 +205,7 @@ ${SLOT_SCHEMA}
         for (const [k, v] of Object.entries(found)) {
           if (st.manual[k]) continue;
           if (k === 'other_issues') { st.facts.other_issues = [...new Set([...(st.facts.other_issues || []), ...v])]; continue; }
-          if (st.facts[k] !== v) { st.facts[k] = v; changed.push(k); }
+          if (st.facts[k] !== v) { st.facts[k] = v; changed.push(k); if (W.CALC_KEYS.includes(k)) st.pending[k] = true; }
         }
         return changed;
       }
@@ -236,7 +243,7 @@ ${SLOT_SCHEMA}
         if (st.facts.city && !(slot && slot.key === 'city')) delete r.facts.city;
         const changed = merge(r.facts);
         ui.busy = false;
-        if (first) st.chat.push({ role: 'ai', text: changed.length ? `我先复述一下听懂的：${r.recap || recapOf(changed)}。` : '好的，我们一个个来。' });
+        if (first) st.chat.push({ role: 'ai', text: changed.length ? `我先复述一下听懂的：${recapOf(changed)}。` : '好的，我们一个个来。' });
         else if (changed.length) st.chat.push({ role: 'ai', text: `记下了：${recapOf(changed)}。` });
         else if (slot) { st.uncertain[slot.key] = (st.uncertain[slot.key] || 0) + 1; st.chat.push({ role: 'ai', text: '这个我没太读懂，换个方式问。' }); }
         askNext(); scrollChat();
@@ -244,7 +251,7 @@ ${SLOT_SCHEMA}
 
       function pick(slotKey, opt) {
         st.chat.push({ role: 'user', text: opt.label });
-        st.facts[slotKey] = opt.value;
+        st.facts[slotKey] = opt.value; delete st.pending[slotKey];
         askNext(); scrollChat();
       }
       function notSure(slotKey) {
@@ -257,14 +264,26 @@ ${SLOT_SCHEMA}
 
       function editFact(k, v) {
         const s = F.SLOTS[k] || F.PARAM_SLOTS[k];
+        delete st.pending[k];
         if (v === '' || v == null) { delete st.facts[k]; delete st.manual[k]; return; }
         st.facts[k] = s.type === 'number' ? +v : v;
         st.manual[k] = true;
       }
+      // 用户核对后确认：模型读出的计算参数从「待确认」转为「已确认」，之后才出金额
+      const pendingKeys = computed(() => W.unconfirmed(st.facts, st.pending));
+      function confirmParams() { st.pending = {}; }
+      const gate = computed(() => W.gates({ facts: st.facts, pending: st.pending, selected: st.selected, conflicts: conflicts.value, chosen: chosen.value, started: st.chat.some(m => m.role === 'user') }));
 
-      function toAnalysis() {
-        // 默认勾上可测算且不互斥的请求：赔偿金优先于恢复劳动关系
-        if (!st.selected.length) st.selected = analysis.value.claims.filter(c => c.id !== 'reinstatement').map(c => c.id);
+      function toAnalysis(confirm) {
+        if (confirm === true) confirmParams();
+        // 默认勾选：先按离职方式对应的补偿类型（2N / N / N+代通知金），再补上不互斥的其他请求；恢复劳动关系不默认勾
+        if (!st.selected.length) {
+          const pref = { '2N': ['illegal_termination'], N: ['economic_compensation'], 'N+notice': ['economic_compensation', 'notice_pay'] }[(analysis.value.severance || {}).type] || [];
+          const ids = analysis.value.claims.map(c => c.id).filter(id => id !== 'reinstatement');
+          const pick = [];
+          for (const id of [...pref.filter(id => ids.includes(id)), ...ids]) if (!pick.includes(id) && !E.conflicts([...pick, id]).length) pick.push(id);
+          st.selected = pick;
+        }
         st.page = 'P2';
         window.scrollTo(0, 0);
       }
@@ -305,8 +324,12 @@ ${SLOT_SCHEMA}
           const sample = await samplePromise;
           const data = await sample.json(D.prompt(kind, tag), { images: imgs });
           if (data && data.doc_ok === false) r.note = `这张看起来不像「${tag}」，请确认上传的文件。`;
+          const before = Object.fromEntries(W.CALC_KEYS.map(k => [k, st.facts[k]]));
           const out = D.apply(kind, data, { facts: st.facts, manual: st.manual, applicant: st.app.applicant, respondent: st.app.respondent });
+          for (const k of W.CALC_KEYS) if (st.facts[k] !== before[k]) st.pending[k] = true;
           r.filled = out.filled; r.conflicts = out.conflicts;
+          if (out.wage) r.note = `按 ${out.wage.from} 至 ${out.wage.to} 共 ${out.wage.months} 个月的应发工资，平均月工资 ${E.yuan(out.wage.value)} 元（代码计算）。`;
+          if (W.CALC_KEYS.some(k => st.pending[k])) r.note = (r.note ? r.note + ' ' : '') + '读到的参数要你在「测算」页确认后才会用来算金额。';
           if (out.reason) r.note = (r.note ? r.note + ' ' : '') + `材料上写的解除理由：「${out.reason}」`;
           if (!out.filled.length && !out.conflicts.length && !r.note) r.note = '没有读到新的信息。';
         } catch (e) {
@@ -314,24 +337,28 @@ ${SLOT_SCHEMA}
         }
         r.busy = false;
       }
-      function go(p) { st.page = p; window.scrollTo(0, 0); }
+      // 页面跳转由 flow.gates 决定，卡住时说明缺什么
+      function go(p) {
+        const g = gate.value[p];
+        if (g && !g.open) { flash(g.why.join('；')); return; }
+        st.page = p; window.scrollTo(0, 0);
+      }
 
       function newCase() { Object.assign(st, blankCase()); ui.drawer = false; }
       function openCase(c) { Object.assign(st, blankCase(), JSON.parse(JSON.stringify(c))); if (st.page === 'P0') st.page = 'P1'; ui.drawer = false; }
 
       // ---------- P6 校验 ----------
-      const REQUIRED = {
-        applicant: { name: '申请人姓名', gender: '申请人性别', id_no: '申请人身份证号', address: '申请人住址', phone: '申请人电话' },
-        respondent: { name: '被申请人名称', address: '被申请人住所' },
-      };
+      // 只有法定必填项（当事人、请求、事实与理由）缺了才不让往下走；证据不足不拦，只在请求上标「需补证」
       function validate(step) {
-        const miss = [];
-        if (step === 1) for (const role of ['applicant', 'respondent']) for (const [k, label] of Object.entries(REQUIRED[role])) if (!String(st.app[role][k] || '').trim()) miss.push(label);
-        if (step === 2 && !chosen.value.length) miss.push('至少一项仲裁请求');
-        if (step === 3 && !st.app.reasons.trim()) miss.push('事实与理由');
+        const all = W.requiredMissing(st.app, chosen.value);
+        const roleLabels = role => Object.values(W.REQUIRED[role]);
+        const miss = step === 1 ? all.filter(m => roleLabels('applicant').includes(m) || roleLabels('respondent').includes(m))
+          : step === 2 ? all.filter(m => m === '至少一项仲裁请求') : all;
         ui.missing = miss;
         return !miss.length;
       }
+      const reasonProblems = computed(() => W.checkReasons(st.app.reasons, st.facts));
+      const appFormat = computed(() => (std.value && std.value.application_format) || {});
       function appNext() {
         if (!validate(st.app.step)) return;
         if (st.app.step === 1 && !st.app.respondent.name && st.facts.company_name) st.app.respondent.name = st.facts.company_name;
@@ -346,14 +373,7 @@ ${SLOT_SCHEMA}
       }
       watch(() => st.page, p => { if (p === 'P6' && !st.app.respondent.name && st.facts.company_name) st.app.respondent.name = st.facts.company_name; });
 
-      function requestLines() {
-        const lines = chosen.value.map(c => {
-          if (c.id === 'reinstatement') return '请求裁决撤销被申请人作出的解除劳动合同决定，恢复双方劳动关系';
-          const amt = c.calc && c.calc.amount != null ? E.yuan(c.calc.amount) : '____';
-          return { illegal_termination: `请求裁决被申请人支付申请人违法解除劳动合同赔偿金 ${amt} 元`, double_wage: `请求裁决被申请人支付申请人未签订书面劳动合同二倍工资差额 ${amt} 元`, unpaid_wages: `请求裁决被申请人支付申请人拖欠的工资 ${amt} 元` }[c.id];
-        });
-        return lines;
-      }
+      function requestLines() { return W.requestLines(chosen.value, E.yuan); }
 
       // ---------- 导出 Word（.docx，用 JSZip 在浏览器里拼） ----------
       function xmlEsc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
@@ -416,7 +436,7 @@ ${SLOT_SCHEMA}
       const pct = k => totals.value.total ? (totals.value[k] / totals.value.total * 100) + '%' : '0%';
 
       return { st, ui, R, E, F, G, PAGES, model, allCities, std, stdCity, stdOrigin, imgCaps, files, upload, kindOfTag: D.kindOfTag, analysis, chosen, conflicts, totals, next, prog, factRows, evidenceGroups, arbitration,
-        answer, pick, notSure, editFact, toAnalysis, toggleClaim, toggleEvidence, go, newCase, openCase, appNext, exportApp, draft, requestLines,
+        answer, pick, notSure, editFact, toAnalysis, pendingKeys, confirmParams, gate, reasonProblems, appFormat, W, toggleClaim, toggleEvidence, go, newCase, openCase, appNext, exportApp, draft, requestLines,
         save, evidenceDoc, applicationDoc, examples, useExample, fillSample, tierClass, statusClass, pct, display, labelOf, today };
     },
   }).mount('#app');

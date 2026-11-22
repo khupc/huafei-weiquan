@@ -13,6 +13,12 @@
     'LCL-14': { name: '《劳动合同法》第14条第3款', gist: '用工满一年仍未订立书面合同的，视为已订立无固定期限劳动合同', review: OK },
     'LCL-30': { name: '《劳动合同法》第30条', gist: '用人单位应当及时足额支付劳动报酬；拖欠的，劳动者可申请支付令', review: OK },
     'LCL-39-42': { name: '《劳动合同法》第39—42条', gist: '用人单位可以解除的法定情形，以及不得解除的情形', review: OK },
+    'LCL-36': { name: '《劳动合同法》第36条', gist: '用人单位与劳动者协商一致，可以解除劳动合同', review: OK },
+    'LCL-38': { name: '《劳动合同法》第38条', gist: '用人单位未及时足额支付劳动报酬、未依法缴纳社保等情形，劳动者可以解除劳动合同', review: OK },
+    'LCL-40': { name: '《劳动合同法》第40条', gist: '医疗期满、不能胜任工作、客观情况重大变化时，提前 30 日书面通知或额外支付一个月工资后可以解除', review: OK },
+    'LCL-41': { name: '《劳动合同法》第41条', gist: '经济性裁员', review: OK },
+    'LCL-46': { name: '《劳动合同法》第46条', gist: '用人单位提出协商解除、依第40、41条解除、劳动者依第38条解除等情形，应当支付经济补偿', review: OK },
+    'LCLR-20': { name: '《劳动合同法实施条例》第20条', gist: '额外支付的一个月工资（代通知金）按上一个月的工资标准确定', review: OK },
     'LCL-47': { name: '《劳动合同法》第47条', gist: '经济补偿按工作年限，每满一年一个月工资；月工资高于当地社平工资 3 倍的按 3 倍、年限最多 12 年', review: OK },
     'LCL-48': { name: '《劳动合同法》第48条', gist: '违法解除的，劳动者可要求继续履行；不要求或不能继续履行的，支付赔偿金', review: OK },
     'LCL-82': { name: '《劳动合同法》第82条', gist: '用工超过一个月不满一年未订立书面合同的，应向劳动者每月支付二倍工资', review: OK },
@@ -74,6 +80,29 @@
       needs: ['separation', 'termination_reason', 'signed_exit_doc'],
       ruled_out_when: { separation: ['resigned', 'mutual', 'contract_expired', 'still_employed'] },
     },
+    economic_compensation: {
+      title: '经济补偿（N）', supported: true, laws: ['LCL-46', 'LCL-47', 'LCL-36', 'LCL-38', 'LCL-40', 'LCL-41', 'LCLR-27'],
+      ref: ['L-04', 'L-07'],
+      elements: [
+        { key: 'labor_relation', label: '存在劳动关系' },
+        { key: 'n_basis', label: '属于应付经济补偿的情形' },
+      ],
+      key_evidence: ['labor_relation'],
+      exclusive_with: ['illegal_termination', 'reinstatement'],
+      needs: ['separation', 'mutual_initiator', 'termination_reason', 'wages_owed', 'start_date', 'end_date', 'monthly_wage'],
+      ruled_out_when: { separation: ['still_employed', 'contract_expired'] },
+    },
+    notice_pay: {
+      title: '代通知金（额外一个月工资）', supported: true, laws: ['LCL-40', 'LCLR-20'], ref: ['L-04'],
+      elements: [
+        { key: 'labor_relation', label: '存在劳动关系' },
+        { key: 'notice_not_given', label: '按第40条解除且没有提前 30 天书面通知' },
+      ],
+      key_evidence: ['labor_relation', 'termination'],
+      exclusive_with: ['illegal_termination', 'reinstatement'],
+      needs: ['separation', 'termination_reason', 'notice_30days', 'monthly_wage'],
+      ruled_out_when: { separation: ['resigned', 'mutual', 'contract_expired', 'still_employed'], termination_reason: ['none', 'misconduct', 'layoff', 'other'] },
+    },
     double_wage: {
       title: '未签书面劳动合同二倍工资差额', supported: true, laws: ['LCL-10', 'LCL-82', 'LCL-14', 'LCLR-6', 'LCLR-7', 'SPC2-6', 'SPC2-7'], ref: ['L-03'],
       elements: [
@@ -99,7 +128,6 @@
     // 以下首批只识别不测算
     overtime: { title: '加班费', supported: false, ref: ['L-08'] },
     annual_leave: { title: '未休年假工资', supported: false, ref: ['L-09'] },
-    constructive_dismissal: { title: '被迫辞职的经济补偿', supported: false, ref: ['L-07'], note: '一般只能主张经济补偿 N；辞职通知要写明公司欠薪等具体理由，建议咨询律师' },
     social_insurance: { title: '补缴社保', supported: false, ref: ['L-11'], note: '补缴一般不归仲裁委管，可找社保征收机构（多为税务）或劳动监察' },
   };
 
@@ -146,6 +174,8 @@
     reinstatement: { disputed_when: ['company_claims_cause', 'reason_unknown', 'signed_exit_doc'], solid_requires: [], review: OK },
     double_wage: { disputed_when: ['hr_role', 'refused_to_sign', 'double_wage_beyond_limitation', 'overtime_base_regional'], solid_requires: [], review: OK },
     unpaid_wages: { disputed_when: ['unpaid_beyond_limitation'], solid_requires: [], review: OK },
+    economic_compensation: { disputed_when: ['constructive_resignation', 'pre2008_high_income', 'overtime_base_regional'], solid_requires: [], review: OK },
+    notice_pay: { disputed_when: [], solid_requires: ['written_termination'], review: OK },
   };
 
   // 证据模板（校准文档 5.1）：分组 → 证明目的 → 备选材料

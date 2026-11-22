@@ -189,6 +189,14 @@
           return '已满足';
         }
         return '还需证据';
+      case 'n_basis': {
+        const t = severance(facts).type;
+        if (t === 'N' || t === 'N+notice') return facts.separation === 'resigned' ? '还需证据' : '已满足';
+        return t ? '不满足' : '还需证据';
+      }
+      case 'notice_not_given':
+        if (facts.notice_30days === 'no') return '已满足';
+        return facts.notice_30days === 'yes' ? '不满足' : '还需证据';
       case 'wages_owed':
         if (facts.wages_owed === 'yes') return '已满足';
         return facts.wages_owed === 'no' ? '不满足' : '还需证据';
@@ -211,6 +219,7 @@
       const w = doubleWageWindow(f, today);
       return w && w.from < cutoffOf(f, today) && '部分月份距今超过一年，二倍工资时效怎么算各地口径不同，已同时给出保守值';
     },
+    constructive_resignation: f => f.separation === 'resigned' && '被迫辞职要在辞职通知里写明公司欠薪等具体理由；写「个人原因」很可能拿不到经济补偿',
     unpaid_beyond_limitation: (f, today) => f.end_date && f.end_date < cutoffOf(f, today) && '离职已超过一年，公司可能提出时效抗辩；有向公司讨薪的记录请保留（可中断时效）',
   };
   // 基本稳的额外要求（TIER_RULES.solid_requires）
@@ -218,7 +227,34 @@
     written_termination: (f, ev) => (f.termination_form === 'written' || (ev && (ev.termination || []).includes('解除通知书'))) ? null : '补上公司书面解除通知（只有口头或聊天时，「公司先提出」容易被否认）',
   };
 
-  const CALC = { illegal_termination: illegalTermination, double_wage: doubleWage, unpaid_wages: unpaidWages };
+  function noticePay(facts) {
+    const lack = missing(facts, ['monthly_wage']);
+    if (lack.length) return { amount: null, lack };
+    const amount = round2(+facts.monthly_wage);
+    return { amount, notes: ['按上一个月的工资标准确定，这里先用月工资代替'], formula: `额外一个月工资 = ${yuan(amount)} 元` };
+  }
+
+  // 补偿判定（律师线程 2026-11-22）：2N / N / N + 代通知金 / 0。纯规则，不交给模型。
+  function severance(f) {
+    if (f.separation === 'company_terminated') {
+      if (f.termination_reason === 'incompetence') return { type: f.notice_30days === 'yes' ? 'N' : 'N+notice', alt: '2N', why: '公司以不胜任等第40条理由解除：解除合法时付 N' + (f.notice_30days === 'yes' ? '' : '，没提前 30 天书面通知的再加一个月工资') + '；解除不合法则是 2N' };
+      if (f.termination_reason === 'layoff') return { type: 'N', alt: '2N', why: '公司以经济性裁员解除：程序合法时付 N；不合法则是 2N' };
+      if (f.termination_reason === 'misconduct') return { type: '2N', alt: '0', why: '公司以严重违纪解除：公司能证明合法的不付补偿；证明不了是 2N' };
+      return { type: '2N', why: '公司单方解除且没有合法理由，按违法解除付 2N' };
+    }
+    if (f.separation === 'mutual') {
+      if (f.mutual_initiator === 'company') return { type: 'N', why: '公司先提出协商解除，付 N' };
+      if (f.mutual_initiator === 'employee') return { type: '0', why: '你先提出协商离职，一般没有经济补偿' };
+      return { type: null, why: '还要看协商离职是谁先提的' };
+    }
+    if (f.separation === 'resigned') {
+      if (f.wages_owed === 'yes') return { type: 'N', why: '公司欠薪时你辞职属于被迫辞职，可以要 N（辞职通知要写明理由）' };
+      return { type: '0', why: '主动辞职一般没有经济补偿' };
+    }
+    return { type: null, why: '' };
+  }
+
+  const CALC = { illegal_termination: illegalTermination, economic_compensation: compensation, notice_pay: noticePay, double_wage: doubleWage, unpaid_wages: unpaidWages };
 
   // 主入口：facts + 地区标准 + 证据勾选 → 请求卡片列表
   function analyze(facts, std, evidence, today) {
@@ -226,6 +262,7 @@
     const claims = [];
     for (const [id, def] of Object.entries(R.CLAIMS)) {
       if (!def.supported) continue;
+      if (def.ruled_out_when && Object.entries(def.ruled_out_when).some(([k, vals]) => vals.includes(facts[k]))) continue;
       const elements = def.elements.map(e => ({ ...e, status: elementStatus(e.key, facts, evidence) }));
       if (elements.some(e => e.status === '不满足')) continue;
       const rule = R.TIER_RULES[id];
@@ -250,7 +287,7 @@
       });
     }
     const unsupported = detectUnsupported(facts).map(id => ({ id, title: R.CLAIMS[id].title, note: R.CLAIMS[id].note || '暂不支持测算，建议咨询律师；时效紧的先申请仲裁保住时效', ref: R.CLAIMS[id].ref }));
-    return { claims, unsupported, routes: routes(facts), limitation: limitation(facts, today) };
+    return { claims, unsupported, routes: routes(facts), severance: severance(facts), limitation: limitation(facts, today) };
   }
 
   function summarize(id, f, tier) {
@@ -261,6 +298,8 @@
       reinstatement: '违法解除时也可以要求回去继续上班，并要求解除期间的工资；和赔偿金只能二选一',
       double_wage: f.signed_contract === 'later' ? '入职满一个月后才补签合同，补签前的月份可以主张二倍工资差额' : '入职满一个月仍没签书面合同，可以主张二倍工资差额',
       unpaid_wages: '已到期没发的工资，公司应当足额支付',
+      economic_compensation: severance(f).why || '属于应付经济补偿的情形',
+      notice_pay: '按第40条解除却没提前 30 天书面通知，要额外付一个月工资',
     }[id];
     return s + (tier === '有争议' ? '（存在争议点）' : '');
   }
@@ -276,7 +315,6 @@
 
   function detectUnsupported(f) {
     const ids = new Set(f.other_issues || []);
-    if (f.separation === 'resigned' && f.wages_owed === 'yes') ids.add('constructive_dismissal');
     return [...ids].filter(id => R.CLAIMS[id] && !R.CLAIMS[id].supported);
   }
 
@@ -290,9 +328,13 @@
 
   // 用户勾选的请求里互斥的组合（L-05）
   function conflicts(selectedIds) {
+    // 互斥是双向的：任一方声明了就算
+    const ex = (a, b) => ((R.CLAIMS[a] || {}).exclusive_with || []).includes(b);
     const out = [];
-    for (const a of selectedIds) for (const b of ((R.CLAIMS[a] || {}).exclusive_with || []))
-      if (selectedIds.includes(b) && a < b) out.push([R.CLAIMS[a].title, R.CLAIMS[b].title]);
+    for (let i = 0; i < selectedIds.length; i++) for (let j = i + 1; j < selectedIds.length; j++) {
+      const a = selectedIds[i], b = selectedIds[j];
+      if (ex(a, b) || ex(b, a)) out.push([R.CLAIMS[a].title, R.CLAIMS[b].title]);
+    }
     return out;
   }
 
@@ -307,7 +349,7 @@
     return t;
   }
 
-  const api = { monthsBetween, workdays, serviceYears, compensation, illegalTermination, doubleWage, unpaidWages, analyze, conflicts, totals, yuan };
+  const api = { severance, monthsBetween, workdays, serviceYears, compensation, illegalTermination, doubleWage, unpaidWages, analyze, conflicts, totals, yuan };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.LA = Object.assign(root.LA || {}, { engine: api });
 })(this);
