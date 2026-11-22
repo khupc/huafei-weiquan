@@ -284,6 +284,8 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
             <input id="p-ot" type="number" :value="st.facts.monthly_overtime || ''" @change="e => editFact('monthly_overtime', e.target.value)" placeholder="填了会多算一个不含加班费的保守值"></label>
           <label class="f"><span>{{ F.PARAM_SLOTS.company_city.label }}</span>
             <input id="p-ccity" list="city-options" :value="st.facts.company_city || ''" @change="e => editFact('company_city', e.target.value)" :placeholder="'默认同工作城市：' + st.city"></label>
+          <label class="f"><span>{{ F.PARAM_SLOTS.filing_date.label }}</span>
+            <input id="p-filing" type="date" :value="st.facts.filing_date || today()" @change="e => editFact('filing_date', e.target.value)"></label>
           <label class="f"><span>{{ stdCity }} {{ std && std.year }} 年度职工月平均工资 <span class="sub">（{{ std && std.origin.avg_wage }}）</span></span>
             <input id="p-avg" type="number" v-model="st.avgWage" placeholder="该地标准待补，可自行填写"></label>
           <label class="f"><span>{{ stdCity }} 月最低工资 <span class="sub">（{{ std && std.origin.min_wage }}）</span></span>

@@ -112,14 +112,23 @@
     return { from, to };
   }
 
-  // 区间内：整月按月工资，不满一个月按 月工资 / 21.75 × 实际工作日；最多 11 个月
-  function doubleWageAmount(from, to, W) {
+  // 区间内逐月计算：整月按月工资，不满一个月按 月工资 / 21.75 × 实际工作日；最多 11 个月。
+  // cutoff（可选）：时效切点，按天切，跨过切点的那个月只算切点之后的工作日。
+  function doubleWageAmount(from, to, W, cutoff) {
     const P = R.PARAMS.double_wage;
-    if (!from || !to || to < from) return { full: 0, days: 0, amount: 0 };
-    let full = 0;
-    while (full < P.max_months && addMonths(from, full + 1) <= addDays(to, 1)) full++;
-    const days = full < P.max_months && addMonths(from, full) <= to ? workdays(addMonths(from, full), to) : 0;
-    return { full, days, amount: round2(W * full + W / P.monthly_workdays * days) };
+    let full = 0, days = 0, amount = 0;
+    if (!from || !to || to < from) return { full, days, amount };
+    for (let k = 0; k < P.max_months; k++) {
+      const ps = addMonths(from, k);
+      if (ps > to) break;
+      const periodEnd = addDays(addMonths(from, k + 1), -1);
+      const pe = minDate(periodEnd, to);
+      const start = cutoff ? maxDate(ps, cutoff) : ps;
+      if (start > pe) continue;
+      if (start === ps && pe === periodEnd) { full++; amount += W; }
+      else { const n = workdays(start, pe); days += n; amount += W / P.monthly_workdays * n; }
+    }
+    return { full, days, amount: round2(amount) };
   }
 
   function doubleWage(facts, std, today) {
@@ -131,16 +140,16 @@
     const w = doubleWageWindow(facts, today);
     const r = doubleWageAmount(w.from, w.to, W);
     const part = r.days ? ` + ${yuan(W)} ÷ ${P.monthly_workdays} × ${r.days} 个工作日` : '';
-    const out = { amount: r.amount, window: w, full: r.full, days: r.days, notes: ['只算额外的那一倍（差额）；工作日按周一至周五估算，未扣法定节假日'],
+    const out = { amount: r.amount, window: w, full: r.full, days: r.days, notes: ['只算额外的那一倍（差额）；不满一个月的工作日按周一至周五估算，调休日未计'],
       formula: `${yuan(W)} 元/月 × ${r.full} 个月${part} = ${yuan(r.amount)} 元（${w.from} 至 ${w.to}，最多 ${P.max_months} 个月）` };
-    // 保守值：月工资不含加班费；时效按「逐月倒推一年」（校准文档第 6 节默认口径）
-    const cutoff = addMonths(today, -12 * R.PARAMS.limitation.years);
+    // 保守值：月工资不含加班费；时效从「预计申请仲裁日」按天倒推一年（律师线程 2026-11-22 确认）
+    const cutoff = cutoffOf(facts, today);
     const Wc = conservativeWage(facts, std);
-    const consFrom = maxDate(w.from, cutoff);
-    if (Wc != null || consFrom !== w.from) {
-      const c = doubleWageAmount(consFrom, w.to, Wc != null ? Wc : W);
+    const cut = w.from < cutoff;
+    if (Wc != null || cut) {
+      const c = doubleWageAmount(w.from, w.to, Wc != null ? Wc : W, cut ? cutoff : null);
       out.conservative = c.amount;
-      out.conservativeNote = [Wc != null ? '月工资不含加班费' : '', consFrom !== w.from ? `只算 ${cutoff} 以后的部分（时效逐月倒推一年）` : ''].filter(Boolean).join('；');
+      out.conservativeNote = [Wc != null ? '月工资不含加班费' : '', cut ? `只算 ${cutoff} 以后的部分（从预计申请日 ${facts.filing_date || today} 倒推一年）；如果之前向公司或劳动监察主张过权利，时效可能已中断，保守值会偏低` : ''].filter(Boolean).join('；');
     }
     return out;
   }
@@ -180,7 +189,8 @@
   }
 
   // ---------- 争议条件（TIER_RULES.disputed_when） ----------
-  const cutoffOf = today => addMonths(today, -12 * R.PARAMS.limitation.years);
+  // 时效切点：预计申请仲裁日（默认今天）往前一年
+  function cutoffOf(facts, today) { return addMonths(facts.filing_date || today, -12 * R.PARAMS.limitation.years); }
   const DISPUTE = {
     company_claims_cause: f => ['misconduct', 'incompetence', 'layoff', 'other'].includes(f.termination_reason) && '公司给了解除理由，是否合法要看公司能否举证（规章制度是否经民主程序并告知等）',
     reason_unknown: f => !f.termination_reason && '还不清楚公司给的解除理由',
@@ -191,9 +201,9 @@
     refused_to_sign: f => f.refused_to_sign === 'yes' && '公司书面通知过签合同而你没签，可能不支持二倍工资',
     double_wage_beyond_limitation: (f, today) => {
       const w = doubleWageWindow(f, today);
-      return w && w.from < cutoffOf(today) && '部分月份距今超过一年，二倍工资时效怎么算各地口径不同，已同时给出保守值';
+      return w && w.from < cutoffOf(f, today) && '部分月份距今超过一年，二倍工资时效怎么算各地口径不同，已同时给出保守值';
     },
-    unpaid_beyond_limitation: (f, today) => f.end_date && f.end_date < cutoffOf(today) && '离职已超过一年，公司可能提出时效抗辩；有向公司讨薪的记录请保留（可中断时效）',
+    unpaid_beyond_limitation: (f, today) => f.end_date && f.end_date < cutoffOf(f, today) && '离职已超过一年，公司可能提出时效抗辩；有向公司讨薪的记录请保留（可中断时效）',
   };
   // 基本稳的额外要求（TIER_RULES.solid_requires）
   const SOLID = {

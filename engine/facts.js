@@ -122,6 +122,7 @@
   const PARAM_SLOTS = {
     monthly_overtime: { label: '月工资里每月加班费（选填）', type: 'number' },
     company_city: { label: '公司所在城市（取社平工资用）', type: 'text' },
+    filing_date: { label: '预计申请仲裁日（算时效用，默认今天）', type: 'date' },
   };
 
   function isFilled(v) { return v !== undefined && v !== null && v !== ''; }

@@ -156,3 +156,17 @@ test('地区表：覆盖全部省级单位，市级覆盖优先于省级默认',
   assert.strictEqual(G.standardsFor('广州', '2025-03-01').origin.avg_wage, '待补');
   assert.strictEqual(G.standardsFor('苏州', '2026-03-01').origin.avg_wage, '待补');
 });
+
+test('保守值按天切：跨过切点的月份只算切点之后的工作日', () => {
+  // 2025-01-10 入职、未签、2026-02-01 离职（区间到 2026-01-09）；预计 2026-03-01 申请 → 切点 2025-03-01
+  const f = { start_date: '2025-01-10', end_date: '2026-02-01', monthly_wage: 8700, signed_contract: 'no', filing_date: '2026-03-01' };
+  const r = E.doubleWage(f, null, TODAY);
+  assert.strictEqual(r.full, 11);
+  // 区间 2025-02-10 起；第一段 2/10–3/9 只算 3/3–3/7 的 5 个工作日（3/1、3/2 是周末，3/8、3/9 是周末），其余 10 个整月
+  assert.strictEqual(r.conservative, Math.round((8700 * 10 + 8700 / 21.75 * 5) * 100) / 100);
+});
+test('预计申请日推后，时效争议随之出现', () => {
+  const f = { start_date: '2025-01-10', end_date: '2025-12-20', monthly_wage: 8700, signed_contract: 'no' };
+  assert.strictEqual(E.doubleWage(f, null, '2026-01-05').conservative, undefined);
+  assert.ok(E.doubleWage({ ...f, filing_date: '2026-03-01' }, null, '2026-01-05').conservative < 95700);
+});
