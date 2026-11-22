@@ -54,3 +54,9 @@ test('工资条：平均月工资由代码按最近 12 个月应发算', () => {
   D.apply('wage', { months, monthly_wage: 99999 }, st);
   assert.strictEqual(st.facts.monthly_wage, avg.value);
 });
+
+test('当事人自己补充的细节里出现的日期，可以出现在事实与理由里', () => {
+  const facts = { start_date: '2022-03-01' };
+  assert.ok(W.checkReasons('2025年6月3日经理在微信里通知申请人。', facts).length);
+  assert.deepStrictEqual(W.checkReasons('2025年6月3日经理在微信里通知申请人。', facts, ['6月份那次是2025年6月3日经理发微信说的']), []);
+});

@@ -107,16 +107,20 @@ ${SLOT_SCHEMA}
     if (!sample) return fallback;
     // 只给模型用户确认过的事实；不给金额，也不许它写金额（金额只在「仲裁请求」里由代码填）
     const facts = Object.fromEntries(Object.entries(st.facts).filter(([k]) => !(st.pending || {})[k] && !['monthly_wage', 'wages_owed_amount', 'monthly_overtime'].includes(k)));
+    const details = rebuttalTexts(st);
     const prompt = `请为劳动仲裁申请书润色「事实与理由」部分。要求：第三人称称「申请人」「被申请人」；按时间顺序陈述事实；只使用下面给出的事实，不要补充任何没给出的事实、日期或数字；不要写任何金额；不要做法律定性，不要写法条；最后一段写「为维护申请人的合法权益，特依法申请仲裁，请求支持申请人的仲裁请求。」；300 字以内；只输出正文。
 事实：${JSON.stringify(facts)}
-仲裁请求事项：${claims.map(c => c.title).join('；')}`;
+仲裁请求事项：${claims.map(c => c.title).join('；')}${details.length ? '\n申请人自己补充的细节（可以用，但不要写其中的金额）：' + details.join('；') : ''}`;
     try {
       const r = await sample(prompt, { cache: false });
       const text = (r.text || '').trim();
       // 代码校验：出现金额或事实里没有的日期，就不用模型稿，退回代码模板
-      return text && !W.checkReasons(text, st.facts).length ? text : fallback;
+      return text && !W.checkReasons(text, st.facts, details).length ? text : fallback;
     } catch (e) { return fallback; }
   }
+
+  // 质证环节当事人写下的补充细节
+  function rebuttalTexts(st) { return Object.values(st.rebuttals || {}).map(t => String(t || '').trim()).filter(Boolean); }
 
   function templateReasons(st, claims) {
     const f = st.facts, L = labelOf;
@@ -124,6 +128,7 @@ ${SLOT_SCHEMA}
     parts.push(`申请人于 ${f.start_date || '____'} 入职被申请人${f.company_name ? '（' + f.company_name + '）' : ''}，月工资约 ${f.monthly_wage ? E.yuan(f.monthly_wage) : '____'} 元。`);
     if (f.signed_contract) parts.push(`双方${f.signed_contract === 'yes' ? '签订了' : f.signed_contract === 'later' ? '于 ' + (f.contract_signed_date || '____') + ' 补签了' : '未签订'}书面劳动合同。`);
     if (f.separation === 'company_terminated') parts.push(`${f.end_date || '____'}，被申请人以${{ written: '书面', chat: '微信或短信', oral: '口头' }[f.termination_form] || '____'}方式通知申请人解除劳动关系，${f.termination_reason === 'none' ? '未说明任何理由' : '理由为' + (L('termination_reason', f.termination_reason) || '____')}。`);
+    for (const t of rebuttalTexts(st)) parts.push(/[。！？]$/.test(t) ? t : t + '。');
     if (f.wages_owed === 'yes') parts.push(`被申请人尚欠申请人工资 ${f.wages_owed_amount ? E.yuan(f.wages_owed_amount) : '____'} 元未支付。`);
     parts.push('为维护申请人的合法权益，特依法申请仲裁，请求支持申请人的仲裁请求。');
     return parts.join('\n');
@@ -143,7 +148,7 @@ ${SLOT_SCHEMA}
 
   function blankCase() {
     return {
-      id: 'c' + Date.now(), updated: null, page: 'P1', facts: {}, manual: {}, uncertain: {}, pending: {},
+      id: 'c' + Date.now(), updated: null, page: 'P1', facts: {}, manual: {}, uncertain: {}, pending: {}, rebuttals: {}, rebutted: [],
       chat: [{ role: 'ai', text: GREETING }], evidence: { labor_relation: [], wage: [], termination: [] }, selected: [], recognized: [], avgWage: null, minWage: null, regAvgWage: null, regMinWage: null,
       app: { applicant: { name: '', gender: '', id_no: '', address: '', phone: '' }, respondent: { name: '', address: '', legal_rep: '', credit_code: '' }, reasons: '', step: 1 },
     };
@@ -158,7 +163,7 @@ ${SLOT_SCHEMA}
   createApp({
     setup() {
       const st = reactive(blankCase());
-      const ui = reactive({ reply: '', busy: false, drawer: false, cases: loadCases(), tab: 'detail', missing: [], exportText: '', editing: false, toast: '' });
+      const ui = reactive({ reply: '', busy: false, drawer: false, cases: loadCases(), tab: 'detail', missing: [], rebutResult: null, rebutPicked: null, rebutBefore: null, exportText: '', editing: false, toast: '' });
 
       const allCities = G.PROVINCES.flatMap(p => p.cities.map(c => ({ city: c, province: p.province })));
       // 社平工资按「用人单位所在」城市取，最低工资同；年度取解除时的上年度（校准文档 L-04、4.1）
@@ -338,6 +343,43 @@ ${SLOT_SCHEMA}
         r.busy = false;
       }
       // 页面跳转由 flow.gates 决定，卡住时说明缺什么
+      // ---------- 质证：对方可能这样说，当事人回应、补充细节，再重新分析 ----------
+      // 回应的大白话照样走「模型抽事实 → 代码合并（计算参数待确认）→ 代码重算」，前后对比由代码给出
+      async function submitRebuttals() {
+        const todo = Object.entries(st.rebuttals).filter(([k, t]) => String(t || '').trim() && !st.rebutted.includes(k + '|' + t));
+        if (!todo.length && !ui.rebutPicked) { flash('先写一条回应，或点选上面的选项'); return; }
+        const { before, beforeIds } = ui.rebutBefore || snapshot();
+        ui.busy = true;
+        const changed = [];
+        for (const [k, t] of todo) {
+          const r = await extract(t, st.facts, null);
+          if (st.facts.city) delete r.facts.city;
+          changed.push(...merge(r.facts));
+          st.rebutted.push(k + '|' + t);
+        }
+        ui.busy = false;
+        const diffs = [];
+        const now = analysis.value.claims;
+        for (const c of now) {
+          const b = before[c.id];
+          if (!b) { if (!beforeIds.includes(c.id)) diffs.push(`新出现可主张的请求：${c.title}`); continue; }
+          if (b.tier !== c.tier) diffs.push(`${c.title}：${b.tier} → ${c.tier}`);
+          if (!pendingKeys.value.length && c.calc && b.amount !== c.calc.amount) diffs.push(`${c.title}：金额 ${b.amount != null ? E.yuan(b.amount) : '—'} → ${c.calc.amount != null ? E.yuan(c.calc.amount) : '—'} 元`);
+        }
+        for (const id of Object.keys(before)) if (!now.some(c => c.id === id)) diffs.push(`${R.CLAIMS[id].title}：按补充的事实已不成立，已取消勾选`);
+        st.selected = st.selected.filter(id => now.some(c => c.id === id));
+        ui.rebutResult = { recap: recapOf([...new Set([...changed, ...(ui.rebutPicked || [])])]), diffs };
+        ui.rebutPicked = null; ui.rebutBefore = null;
+      }
+      function snapshot() {
+        return { before: Object.fromEntries(chosen.value.map(c => [c.id, { tier: c.tier, amount: c.calc && c.calc.amount }])), beforeIds: analysis.value.claims.map(c => c.id) };
+      }
+      function rebutPick(slot, value) {
+        if (!ui.rebutBefore) ui.rebutBefore = snapshot();
+        editFact(slot, value);
+        ui.rebutPicked = [...new Set([...(ui.rebutPicked || []), slot])];
+      }
+
       function go(p) {
         const g = gate.value[p];
         if (g && !g.open) { flash(g.why.join('；')); return; }
@@ -357,7 +399,7 @@ ${SLOT_SCHEMA}
         ui.missing = miss;
         return !miss.length;
       }
-      const reasonProblems = computed(() => W.checkReasons(st.app.reasons, st.facts));
+      const reasonProblems = computed(() => W.checkReasons(st.app.reasons, st.facts, rebuttalTexts(st)));
       const appFormat = computed(() => (std.value && std.value.application_format) || {});
       function appNext() {
         if (!validate(st.app.step)) return;
@@ -436,7 +478,7 @@ ${SLOT_SCHEMA}
       const pct = k => totals.value.total ? (totals.value[k] / totals.value.total * 100) + '%' : '0%';
 
       return { st, ui, R, E, F, G, PAGES, model, allCities, std, stdCity, stdOrigin, imgCaps, files, upload, kindOfTag: D.kindOfTag, analysis, chosen, conflicts, totals, next, prog, factRows, evidenceGroups, arbitration,
-        answer, pick, notSure, editFact, toAnalysis, pendingKeys, confirmParams, gate, reasonProblems, appFormat, W, toggleClaim, toggleEvidence, go, newCase, openCase, appNext, exportApp, draft, requestLines,
+        answer, pick, notSure, editFact, toAnalysis, pendingKeys, confirmParams, gate, submitRebuttals, rebutPick, reasonProblems, appFormat, W, toggleClaim, toggleEvidence, go, newCase, openCase, appNext, exportApp, draft, requestLines,
         save, evidenceDoc, applicationDoc, examples, useExample, fillSample, tierClass, statusClass, pct, display, labelOf, today };
     },
   }).mount('#app');

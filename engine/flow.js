@@ -61,12 +61,15 @@
     return chosen.map(c => REQUEST_TEMPLATES[c.id](c.calc && c.calc.amount != null ? yuan(c.calc.amount) : '____'));
   }
 
-  // 校验模型起草的「事实与理由」：不许出现金额；出现的日期必须是用户确认过的事实里的日期
-  function checkReasons(text, facts) {
+  // 校验模型起草的「事实与理由」：不许出现金额；出现的日期必须是用户确认过的事实里的日期，
+  // 或当事人自己写下的补充细节（userTexts）里出现过的日期
+  function checkReasons(text, facts, userTexts) {
     const problems = [];
     if (/\d[\d,，.]*\s*(万)?元/.test(text || '')) problems.push('出现了金额');
     const pad = n => String(n).padStart(2, '0');
     const known = ['start_date', 'end_date', 'contract_signed_date'].map(k => facts[k]).filter(Boolean);
+    for (const t of userTexts || []) for (const x of String(t).matchAll(/(\d{4})\s*[年\-./]\s*(\d{1,2})(?:\s*[月\-./]\s*(\d{1,2}))?/g))
+      known.push(`${x[1]}-${pad(x[2])}` + (x[3] ? `-${pad(x[3])}` : ''));
     const ok = (y, m, d) => known.some(k => d ? k === `${y}-${pad(m)}-${pad(d)}` : k.startsWith(`${y}-${pad(m)}`));
     for (const x of (text || '').matchAll(/(\d{4})\s*[年\-./]\s*(\d{1,2})(?:\s*[月\-./]\s*(\d{1,2}))?/g)) {
       if (!ok(+x[1], +x[2], x[3] ? +x[3] : null)) problems.push(`出现了事实里没有的日期 ${x[0]}`);

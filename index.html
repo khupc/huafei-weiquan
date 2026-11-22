@@ -310,22 +310,22 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
     <template v-if="st.page === 'P4'">
       <section class="card stack">
         <span class="eyebrow">预计可主张总额 · {{ st.facts.city }}</span>
-        <div class="big">{{ E.yuan(totals.total) }} <small style="font-size:16px">元</small></div>
-        <div class="tri"><i :style="{width: pct('基本稳')}"></i><i :style="{width: pct('需补证')}"></i><i :style="{width: pct('有争议')}"></i></div>
-        <div class="legend"><b style="color:var(--solid)">基本稳 {{ E.yuan(totals['基本稳']) }}</b><b style="color:var(--need)">需补证 {{ E.yuan(totals['需补证']) }}</b><b style="color:var(--dispute)">有争议 {{ E.yuan(totals['有争议']) }}</b></div>
-        <p v-if="totals.conservative !== totals.total" class="sub">按更不利的口径算，保守值为 {{ E.yuan(totals.conservative) }} 元。</p>
+        <div v-if="pendingKeys.length" class="sub">有参数待确认，确认后显示金额。</div>
+        <div v-else class="big">{{ E.yuan(totals.total) }} <small style="font-size:16px">元</small></div>
+        <div v-if="!pendingKeys.length" class="tri"><i :style="{width: pct('基本稳')}"></i><i :style="{width: pct('需补证')}"></i><i :style="{width: pct('有争议')}"></i></div>
+        <div v-if="!pendingKeys.length" class="legend"><b style="color:var(--solid)">基本稳 {{ E.yuan(totals['基本稳']) }}</b><b style="color:var(--need)">需补证 {{ E.yuan(totals['需补证']) }}</b><b style="color:var(--dispute)">有争议 {{ E.yuan(totals['有争议']) }}</b></div>
+        <p v-if="!pendingKeys.length && totals.conservative !== totals.total" class="sub">按更不利的口径算，保守值为 {{ E.yuan(totals.conservative) }} 元。</p>
         <p class="sub">生成于 {{ today() }}；社平工资取 {{ stdCity }} {{ std && std.year }} 年度（{{ std && std.origin.avg_wage }}）。</p>
       </section>
       <section class="card stack">
         <div class="tabs">
           <button :class="{on: ui.tab === 'detail'}" @click="ui.tab = 'detail'">请求明细</button>
           <button :class="{on: ui.tab === 'path'}" @click="ui.tab = 'path'">维权路径</button>
-          <button :class="{on: ui.tab === 'defense'}" @click="ui.tab = 'defense'">对方会怎么说</button>
         </div>
         <template v-if="ui.tab === 'detail'">
           <div v-for="c in chosen" :key="c.id" class="calc-line">
             <div class="row"><b class="grow">{{ c.title }}</b><span class="tier" :class="tierClass(c.tier)">{{ c.tier }}</span></div>
-            <div class="formula">{{ c.calc && c.calc.formula || '不涉及金额' }}</div>
+            <div class="formula">{{ pendingKeys.length && c.calc ? '参数确认后显示' : c.calc && c.calc.formula || '不涉及金额' }}</div>
             <div v-if="c.toSolid.length && c.tier !== '基本稳'" class="formula">要变成基本稳还差：{{ c.toSolid.join('；') }}</div>
             <div v-for="d in c.disputes" class="formula">争议点：{{ d }}</div>
           </div>
@@ -337,12 +337,30 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
           <ol class="path"><li v-for="s in R.PATH"><b>{{ s.step }}</b><small>{{ s.time }} · {{ s.note }}</small></li></ol>
           <p class="sub">建议申请的仲裁委：{{ arbitration }}（劳动合同履行地；也可以去公司所在地）。劳动仲裁不收费。</p>
         </template>
-        <template v-if="ui.tab === 'defense'">
-          <div v-for="c in chosen" :key="c.id" class="stack">
-            <h3>{{ c.title }}</h3>
-            <div v-for="d in c.defenses" class="calc-line"><b>对方可能说：「{{ d.says }}」</b><span class="formula">你可以准备：{{ d.prepare }}</span></div>
+      </section>
+      <!-- 质证：对方可能这样说，当事人回应、补充细节后重新分析 -->
+      <section class="card stack" id="rebuttal">
+        <h2>对方可能会这样说，你怎么看？</h2>
+        <p class="sub">看到这些，你可能会想起更多细节。逐条回应或补充都行，写完点「重新分析」，结论和金额会按新的事实重算。可以跳过。</p>
+        <div v-for="c in chosen" :key="c.id" class="stack">
+          <h3 v-if="c.defenses.length">{{ c.title }}</h3>
+          <div v-for="(d, i) in c.defenses" :key="i" class="calc-line stack">
+            <b>对方可能说：「{{ d.says }}」</b>
+            <span class="formula">你可以准备：{{ d.prepare }}</span>
+            <div v-if="d.slot && F.SLOTS[d.slot]" class="row">
+              <span class="sub">{{ F.SLOTS[d.slot].label }}：</span>
+              <button v-for="o in F.SLOTS[d.slot].options" :key="o.value" class="chip" :class="{on: st.facts[d.slot] === o.value}" @click="rebutPick(d.slot, o.value)">{{ o.label }}</button>
+            </div>
+            <textarea :id="'rb-' + c.id + '-' + i" v-model="st.rebuttals[c.id + '|' + i]" rows="2" placeholder="你的回应或补充的细节，例如：经理在微信里说明天别来了，我还有截图"></textarea>
           </div>
-        </template>
+        </div>
+        <button id="rebut-submit" class="btn" :disabled="ui.busy" @click="submitRebuttals">{{ ui.busy ? '正在分析…' : '重新分析' }}</button>
+        <div v-if="ui.rebutResult" class="stack">
+          <p v-if="ui.rebutResult.recap" class="sub">记下了：{{ ui.rebutResult.recap }}。</p>
+          <p v-if="!ui.rebutResult.diffs.length" class="sub">按补充的内容重新分析，结论没有变化；你写的细节会用在申请书的事实与理由里。</p>
+          <div v-for="d in ui.rebutResult.diffs" class="warn">{{ d }}</div>
+          <div v-if="pendingKeys.length" class="warn">有新读到的参数要先确认才能重算金额。<button class="btn plain" @click="go('P3')">去确认</button></div>
+        </div>
       </section>
       <button class="btn block" @click="go('P5')">整理证据</button>
     </template>
