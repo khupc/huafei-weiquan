@@ -1,9 +1,10 @@
-// 材料识别：用户在证据页或申请书页上传照片，Claude 读出字段，这里决定写到哪里。
+// 信息链的写入口：材料照片（Claude 读出字段）和对话里提到的当事人信息，都经这里写进同一份案件数据
+// （事实 facts、申请人 applicant、被申请人 respondent），并在 sources 里记下每一项的来源。
 // 写入规则：用户手动改过的不覆盖；申请书里已填的不覆盖；和用户说过的事实矛盾的不改，只提示。
 (function (root) {
   // 每类材料要读的字段
   const KINDS = {
-    contract: { title: '劳动合同', fields: ['company_name', 'company_address', 'legal_rep', 'credit_code', 'applicant_name', 'applicant_id_no', 'applicant_address', 'start_date', 'monthly_wage'] },
+    contract: { title: '劳动合同', fields: ['company_name', 'company_address', 'legal_rep', 'credit_code', 'applicant_name', 'applicant_id_no', 'applicant_address', 'applicant_phone', 'start_date', 'monthly_wage'] },
     id_card: { title: '身份证', fields: ['applicant_name', 'applicant_gender', 'applicant_id_no', 'applicant_address'] },
     license: { title: '营业执照', fields: ['company_name', 'company_address', 'legal_rep', 'credit_code'] },
     termination: { title: '解除通知', fields: ['company_name', 'end_date', 'termination_reason_text'] },
@@ -23,7 +24,7 @@
 
   const FIELD_DESC = {
     company_name: '用人单位全称', company_address: '用人单位住所/地址', legal_rep: '法定代表人姓名', credit_code: '统一社会信用代码（18 位）',
-    applicant_name: '劳动者姓名', applicant_gender: '劳动者性别（男/女）', applicant_id_no: '劳动者身份证号', applicant_address: '劳动者住址',
+    applicant_name: '劳动者姓名', applicant_gender: '劳动者性别（男/女）', applicant_id_no: '劳动者身份证号', applicant_address: '劳动者住址', applicant_phone: '劳动者联系电话',
     start_date: '入职或合同起始日期 YYYY-MM-DD', end_date: '解除或离职日期 YYYY-MM-DD', monthly_wage: '月工资（数字，元，税前应发）',
     months: '逐月工资，数组 [{"month":"YYYY-MM","gross":应发数字,"net":实发数字}]；只列照片上看得到的月份，看不清的数字不要写',
     termination_reason_text: '单位写明的解除理由（原文摘录，30 字以内）',
@@ -48,17 +49,43 @@ ${k.fields.map(f => `${f}: ${FIELD_DESC[f]}`).join('\n')}
   }
 
   // 把识别结果写进案件。state = { facts, manual, applicant, respondent }，原地修改，返回写了什么、哪些有矛盾。
-  function apply(kind, data, state) {
-    const filled = [], conflicts = [];
-    const label = { company_name: '公司名称', company_address: '公司住所', legal_rep: '法定代表人', credit_code: '统一社会信用代码', applicant_name: '姓名', applicant_gender: '性别', applicant_id_no: '身份证号', applicant_address: '住址', start_date: '入职日期', end_date: '离职日期', monthly_wage: '月工资' };
-    const put = (obj, key, field, v) => { if (v && !obj[key]) { obj[key] = v; filled.push(label[field] || field); } };
-    const fact = (key, v, overwrite) => {
-      if (v == null || v === '' || state.manual[key]) return;
-      if (state.facts[key] == null || state.facts[key] === '') { state.facts[key] = v; filled.push(label[key] || key); }
-      else if (state.facts[key] !== v) {
-        if (overwrite) { conflicts.push(`${label[key]}：你说的是 ${state.facts[key]}，材料上是 ${v}，已按材料更新`); state.facts[key] = v; }
-        else conflicts.push(`${label[key]}：你说的是 ${state.facts[key]}，材料上是 ${v}，请核对`);
-      }
+  // 同一字段多个来源时取哪个（产品报告第 1 节「信息链」）：用户确认或手改 > 官方证照 > 其他材料 > 对话 > 推断。
+  // 没记来源的已有值按用户填的处理，不覆盖。
+  const OFFICIAL = ['id_card', 'license'];
+  function rank(source) {
+    if (!source) return 5;
+    if (/你改的|你确认的/.test(source)) return 5;
+    if (/^(身份证|营业执照)/.test(source)) return 4;
+    if (/照片$/.test(source)) return 3;
+    if (/对话|你补充的|你选的/.test(source)) return 2;
+    return 1;
+  }
+  // 会影响请求成立或金额的事实：来源之间不一致时不自动选，交给用户（asks），两个值都留档
+  const DECISIVE = ['start_date', 'end_date', 'monthly_wage', 'signed_contract', 'termination_form'];
+
+  // source：来源说明，如「劳动合同照片」「你在对话里说的」；state.sources 记录每个字段的来源
+  // （facts 用字段名，当事人用 applicant.name 这类路径）。返回写了什么（filled、wrote）、要问用户的冲突（asks）。
+  function apply(kind, data, state, source) {
+    const sources = state.sources || {};
+    const src = (path) => { if (state.sources && source) state.sources[path] = source; };
+    const newRank = rank(source || (OFFICIAL.includes(kind) ? KINDS[kind].title : '材料照片'));
+    const filled = [], conflicts = [], asks = [], wrote = [];
+    const label = { company_name: '公司名称', company_address: '公司住所', legal_rep: '法定代表人', credit_code: '统一社会信用代码', applicant_name: '姓名', applicant_gender: '性别', applicant_id_no: '身份证号', applicant_address: '住址', applicant_phone: '电话', start_date: '入职日期', end_date: '离职日期', monthly_wage: '月工资', signed_contract: '是否签劳动合同', termination_form: '辞退方式' };
+    // 当事人信息：不影响结论，按优先级自动取值并标来源
+    const put = (obj, key, field, v) => {
+      if (!v) return;
+      const path = (obj === state.applicant ? 'applicant.' : 'respondent.') + key;
+      if (!obj[key] || (obj[key] !== v && newRank > rank(sources[path]))) { obj[key] = v; filled.push(label[field] || field); src(path); }
+    };
+    const fact = (key, v, shown) => {
+      if (v == null || v === '') return;
+      const old = state.facts[key];
+      if (old == null || old === '') { if (state.manual[key]) return; state.facts[key] = v; filled.push(shown || label[key] || key); wrote.push(key); src(key); return; }
+      if (old === v) return;
+      if (DECISIVE.includes(key)) {
+        asks.push({ key, label: label[key] || key, values: [{ v: old, source: sources[key] || '你之前说的' }, { v, source: source || '材料' }] });
+        conflicts.push(`${label[key]}和之前的不一致，请选以哪个为准`);
+      } else if (!state.manual[key] && newRank > rank(sources[key])) { state.facts[key] = v; filled.push(label[key] || key); src(key); }
     };
     const d = data || {};
     const date = s => (typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s)) ? s : null;
@@ -71,21 +98,28 @@ ${k.fields.map(f => `${f}: ${FIELD_DESC[f]}`).join('\n')}
     put(state.applicant, 'gender', 'applicant_gender', ['男', '女'].includes(d.applicant_gender) ? d.applicant_gender : null);
     put(state.applicant, 'id_no', 'applicant_id_no', d.applicant_id_no);
     put(state.applicant, 'address', 'applicant_address', d.applicant_address);
-    fact('company_name', d.company_name, false);
-    // 书面材料上的日期比口头回忆可靠：合同、社保上的入职日期，解除通知上的离职日期，直接更新并提示
-    fact('start_date', date(d.start_date), kind === 'contract' || kind === 'social');
-    fact('end_date', date(d.end_date), kind === 'termination');
+    put(state.applicant, 'phone', 'applicant_phone', d.applicant_phone);
+    fact('company_name', d.company_name);
+    fact('start_date', date(d.start_date));
+    fact('end_date', date(d.end_date));
     const avg = kind === 'wage' ? averageGross(d.months) : null;
-    fact('monthly_wage', avg ? avg.value : num(d.monthly_wage), false);
-    if (kind === 'contract') {
-      if (!state.facts.signed_contract && !state.manual.signed_contract) { state.facts.signed_contract = 'yes'; filled.push('已签劳动合同'); }
-      else if (state.facts.signed_contract === 'no') conflicts.push('你上传了劳动合同，但之前说没签过，请在事实摘要里确认（签过的话就不能主张二倍工资）');
-    }
-    if (kind === 'termination' && !state.facts.termination_form && !state.manual.termination_form) { state.facts.termination_form = 'written'; filled.push('辞退方式：书面通知'); }
-    return { filled: [...new Set(filled)], conflicts, reason: d.termination_reason_text || null, wage: avg };
+    fact('monthly_wage', avg ? avg.value : num(d.monthly_wage));
+    if (kind === 'contract') fact('signed_contract', 'yes', '已签劳动合同');
+    if (kind === 'termination') fact('termination_form', 'written', '辞退方式：书面通知');
+    return { filled: [...new Set(filled)], conflicts, asks, wrote, reason: d.termination_reason_text || null, wage: avg };
   }
 
-  const api = { KINDS, TAG_KIND, kindOfTag, prompt, apply, averageGross };
+  // 用户在对话里说过的材料，到证据页直接勾上（只是事实到证据标签的对应，不做法律判断）
+  const FACT_EVIDENCE = {
+    labor_proof: { social: ['labor_relation', '社保缴费记录'], payroll: ['labor_relation', '工资银行流水（单位付款）'], badge: ['labor_relation', '工牌或工服'], chat: ['labor_relation', '工作群聊天记录'] },
+    termination_form: { written: ['termination', '解除通知书'], chat: ['termination', '辞退聊天记录'] },
+    signed_contract: { yes: ['labor_relation', '劳动合同'], later: ['labor_relation', '劳动合同'] },
+  };
+  function impliedEvidence(facts) {
+    return Object.entries(FACT_EVIDENCE).map(([k, m]) => m[facts[k]]).filter(Boolean);
+  }
+
+  const api = { KINDS, TAG_KIND, kindOfTag, prompt, apply, averageGross, impliedEvidence, rank, DECISIVE };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.LA = Object.assign(root.LA || {}, { docs: api });
 })(this);

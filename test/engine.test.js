@@ -242,16 +242,17 @@ test('材料识别：劳动合同写入公司信息和事实，不覆盖手改�
   assert.strictEqual(state.respondent.name, '已填公司');
   assert.strictEqual(state.respondent.address, '苏州工业园区');
   assert.strictEqual(state.applicant.name, '张三');
-  assert.strictEqual(state.facts.start_date, '2022-06-15');           // 合同上的日期更新口头回忆
-  assert.strictEqual(state.facts.monthly_wage, 9000);                 // 手改过的不覆盖
+  assert.strictEqual(state.facts.start_date, '2023-06-01');           // 影响金额的冲突不自动选
+  assert.strictEqual(state.facts.monthly_wage, 9000);
   assert.strictEqual(state.facts.signed_contract, 'yes');
-  assert.ok(out.conflicts.some(c => c.includes('入职日期')));
+  assert.deepStrictEqual(out.asks.map(a => a.key), ['start_date', 'monthly_wage']);   // 交给用户选，两个值都留着
+  assert.deepStrictEqual(out.asks[0].values.map(v => v.v), ['2023-06-01', '2022-06-15']);
 });
 test('材料识别：说过没签却传了合同，只提示不改', () => {
   const state = { facts: { signed_contract: 'no' }, manual: {}, applicant: {}, respondent: {} };
   const out = D.apply('contract', {}, state);
   assert.strictEqual(state.facts.signed_contract, 'no');
-  assert.ok(out.conflicts.length === 1);
+  assert.strictEqual(out.asks[0].key, 'signed_contract');
 });
 test('材料识别：解除通知写入离职日期和书面通知', () => {
   const state = { facts: {}, manual: {}, applicant: {}, respondent: {} };

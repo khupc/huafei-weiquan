@@ -32,9 +32,20 @@ hr_role: yes|no（职务是否负责人事或属于管理层）
 refused_to_sign: yes|no（公司是否书面通知签合同而本人没签）
 company_name: 字符串
 labor_proof: social|payroll|badge|chat|none（没签合同时，能证明劳动关系的最有力材料：社保记录 / 单位账户发的工资流水 / 工牌工作证或考勤 / 只有工作群聊天 / 都没有）
+applicant_name / applicant_gender(男|女) / applicant_phone / applicant_id_no / applicant_address: 劳动者本人的姓名、性别、电话、身份证号、住址（用户说了才输出）
+company_address / legal_rep: 公司地址、法定代表人姓名（用户说了才输出）
 other_issues: 数组，可含 overtime|annual_leave|social_insurance|work_injury（受伤、工伤、职业病）|platform_work（外卖骑手、网约车等平台接单，或外包）|dispatch（劳务派遣）|subcontract（挂靠、包工头、违法转包分包）`;
 
   // evidenceOptions：补正时传入证据清单，模型顺带说出用户提到了哪些证据
+  const PARTY_KEYS = ['applicant_name', 'applicant_gender', 'applicant_phone', 'applicant_id_no', 'applicant_address', 'company_name', 'company_address', 'legal_rep'];
+  const pickParties = o => Object.fromEntries(PARTY_KEYS.filter(k => typeof o[k] === 'string' && o[k].trim()).map(k => [k, o[k].trim()]));
+  function keywordParties(text) {
+    const out = {};
+    const phone = text.match(/(?<!\d)1[3-9]\d{9}(?!\d)/); if (phone) out.applicant_phone = phone[0];
+    const id = text.match(/(?<!\d)\d{17}[\dXx](?!\d)/); if (id) out.applicant_id_no = id[0].toUpperCase();
+    const name = text.match(/我叫([\u4e00-\u9fa5]{2,4}?)(?=[，。,\s]|$)/); if (name) out.applicant_name = name[1];
+    return out;
+  }
   async function extract(text, facts, currentSlot, evidenceOptions) {
     const sample = await samplePromise;
     if (sample) {
@@ -50,7 +61,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       try {
         const r = await sample.json(prompt, { modelTier: 'quick' });
         model.status = 'Claude';
-        if (r && typeof r === 'object') return { facts: clean(r.facts || {}), evidence: (evidenceOptions && Array.isArray(r.evidence) ? r.evidence.filter(e => evidenceOptions.includes(e)) : []), by: 'model' };
+        if (r && typeof r === 'object') return { facts: clean(r.facts || {}), parties: pickParties(r.facts || {}), evidence: (evidenceOptions && Array.isArray(r.evidence) ? r.evidence.filter(e => evidenceOptions.includes(e)) : []), by: 'model' };
       } catch (e) {
         if (e && e.code === 'not_granted') { model.ok = false; model.status = '关键词版（你没有授权使用 Claude）'; }
       }
@@ -59,8 +70,9 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
     const city = findCity(text);
     if (city) kw.city = city;
     if (currentSlot && !kw[currentSlot.key]) Object.assign(kw, directAnswer(currentSlot, text));
-    const evidence = (evidenceOptions || []).filter(o => text.includes(o) || (o === '通话录音' && /录音/.test(text)) || (o === '辞退聊天记录' && /聊天|截图/.test(text) && /辞|别来/.test(text)));
-    return { facts: kw, evidence, by: 'keyword' };
+    const has = o => { const i = text.indexOf(o); return i >= 0 && !/[没未无不]/.test(text.slice(Math.max(0, i - 4), i)); };
+    const evidence = (evidenceOptions || []).filter(o => has(o) || (o === '通话录音' && /录音/.test(text)) || (o === '辞退聊天记录' && /聊天|截图/.test(text) && /辞|别来/.test(text)));
+    return { facts: kw, parties: keywordParties(text), evidence, by: 'keyword' };
   }
 
   // 只收清单里有的字段和合法取值
@@ -104,13 +116,14 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
   }
 
   // 事实与理由：把对话、补正、材料识别、证据、请求合并成一份记录（flow.buildRecord，不含金额和待确认参数），交模型总结
-  async function draftReasons(st, claims, record) {
+  async function draftReasons(st, claims, record, evidenceList) {
     const fallback = templateReasons(st, claims);
     const sample = await samplePromise;
     if (!sample) return fallback;
     const prompt = `请根据下面这份劳动争议案件记录，为劳动仲裁申请书总结「事实与理由」部分。
-要求：第三人称称「申请人」「被申请人」；把对话、补充细节、材料里的事实合并去重，按时间顺序陈述；只使用记录里有的事实，不要补充任何记录里没有的事实、日期或数字；不要写任何金额；不要做法律定性，不要写法条；可以写明有哪些证据能证明哪件事；最后一段写「为维护申请人的合法权益，特依法申请仲裁，请求支持申请人的仲裁请求。」；400 字以内；只输出正文。
-案件记录：${JSON.stringify(record)}`;
+要求：第三人称称「申请人」「被申请人」；把对话、补充细节、材料里的事实合并去重，按时间顺序陈述；只使用记录里有的事实，不要补充任何记录里没有的事实、日期或数字；不要写任何金额；不要做法律定性，不要写法条；关键事实后用括号标出能证明它的证据编号，如「（见证据 2：辞退聊天记录）」，只能用下面证据目录里的编号；最后一段写「为维护申请人的合法权益，特依法申请仲裁，请求支持申请人的仲裁请求。」；400 字以内；只输出正文。
+案件记录：${JSON.stringify(record)}
+证据目录：${(evidenceList || []).map((t, i) => `证据 ${i + 1}：${t}`).join('；') || '暂无'}`;
     try {
       const r = await sample(prompt, { cache: false });
       const text = (r.text || '').trim();
@@ -145,7 +158,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
 
   function blankCase() {
     return {
-      id: 'c' + Date.now(), updated: null, page: 'P1', facts: {}, manual: {}, uncertain: {}, pending: {}, supplements: [], evPurpose: {},
+      id: 'c' + Date.now(), updated: null, page: 'P1', facts: {}, manual: {}, uncertain: {}, pending: {}, supplements: [], evPurpose: {}, sources: {}, autoTicked: [], asks: [], archive: [], confirmed: false,
       chat: [{ role: 'ai', text: GREETING }], evidence: { labor_relation: [], wage: [], termination: [] }, selected: [], recognized: [], avgWage: null, minWage: null, regAvgWage: null, regMinWage: null,
       app: { applicant: { name: '', gender: '', id_no: '', address: '', phone: '' }, respondent: { name: '', address: '', legal_rep: '', credit_code: '' }, reasons: '', step: 1 },
     };
@@ -160,7 +173,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
   createApp({
     setup() {
       const st = reactive(blankCase());
-      const ui = reactive({ reply: '', busy: false, drawer: false, cases: loadCases(), tab: 'detail', missing: [], supp: '', evBusy: false, exportText: '', editing: false, toast: '' });
+      const ui = reactive({ reply: '', busy: false, drawer: false, cases: loadCases(), tab: 'detail', missing: [], focusQ: '', supp: '', evBusy: false, exportText: '', editing: false, toast: '' });
 
       const allCities = G.PROVINCES.flatMap(p => p.cities.map(c => ({ city: c, province: p.province })));
       // 社平工资按「用人单位所在」城市取，最低工资同；年度取解除时的上年度（校准文档 L-04、4.1）
@@ -202,15 +215,63 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       }
       watch(st, persist, { deep: true });
 
-      function merge(found) {
+      // ---------- 信息链：所有来源（对话、补正、照片、点选、手改）都写进同一份案件数据，并记下来源 ----------
+      const ALL_EVIDENCE = R.EVIDENCE.flatMap(g => g.options);
+      function merge(found, source) {
+        source = source || '你在对话里说的';
         const changed = [];
         for (const [k, v] of Object.entries(found)) {
           if (st.manual[k]) continue;
           if (k === 'other_issues') { st.facts.other_issues = [...new Set([...(st.facts.other_issues || []), ...v])]; continue; }
-          if (st.facts[k] !== v) { st.facts[k] = v; changed.push(k); if (W.CALC_KEYS.includes(k)) st.pending[k] = true; }
+          if (st.facts[k] === v) continue;
+          // 用户确认过事实以后，AI 不能直接改影响请求或金额的字段，只能提出来让用户选
+          const old = st.facts[k];
+          if (st.confirmed && old != null && old !== '' && (D.DECISIVE.includes(k) || W.CALC_KEYS.includes(k))) {
+            addAsk({ key: k, label: (F.SLOTS[k] || {}).label || k, values: [{ v: old, source: st.sources[k] || '你之前说的' }, { v, source }] });
+            continue;
+          }
+          st.facts[k] = v; st.sources[k] = source; changed.push(k); if (W.CALC_KEYS.includes(k)) st.pending[k] = true;
         }
         return changed;
       }
+      // 来源之间对不上、又会影响请求或金额时，弹卡问用户以哪个为准；选完两个值都留档
+      function addAsk(a) {
+        if (st.asks.some(x => x.key === a.key && x.values.some(y => y.v === a.values[1].v))) return;
+        st.asks.push(a);
+      }
+      function resolveAsk(i, val) {
+        const a = st.asks[i];
+        st.facts[a.key] = val.v; st.manual[a.key] = true; st.sources[a.key] = '你确认的';
+        delete st.pending[a.key];
+        st.archive.push({ ...a, chosen: val.v, at: new Date().toISOString() });
+        st.asks.splice(i, 1);
+      }
+      // 抽取结果整体入链：事实、当事人信息、提到的证据
+      function ingest(r, source) {
+        const changed = merge(r.facts, source);
+        const party = D.apply('chat', r.parties || {}, { facts: st.facts, manual: st.manual, applicant: st.app.applicant, respondent: st.app.respondent, sources: st.sources }, source);
+        (party.asks || []).forEach(addAsk);
+        const ticked = tickEvidence(r.evidence || []);
+        return { changed, party: party.filled, ticked };
+      }
+      function tickEvidence(tags) {
+        const ticked = [];
+        for (const tag of tags) {
+          const g = R.EVIDENCE.find(g => g.options.includes(tag));
+          if (g && !st.evidence[g.group].includes(tag)) { st.evidence[g.group].push(tag); ticked.push(tag); }
+        }
+        return ticked;
+      }
+      // 对话里说过的材料（如「有社保」「微信上通知的」）对应的证据，自动勾上一次；用户取消后不再勾
+      watch(() => D.impliedEvidence(st.facts).map(x => x[1]).join(), () => {
+        const tags = D.impliedEvidence(st.facts).map(x => x[1]).filter(t => !st.autoTicked.includes(t));
+        st.autoTicked.push(...tags); tickEvidence(tags);
+      }, { immediate: true });
+      // 营业执照、合同上读到公司住所后，带出注册地城市（用于注册地标准）
+      watch(() => st.app.respondent.address, a => {
+        const c = a && findCity(a);
+        if (c && !st.facts.company_city && !st.manual.company_city) { st.facts.company_city = c; st.sources.company_city = st.sources['respondent.address'] || '公司住所'; }
+      }, { immediate: true });
 
       function recapOf(keys) {
         return keys.filter(k => F.SLOTS[k]).map(k => `${F.SLOTS[k].label}：${display(k, st.facts[k])}`).join('；');
@@ -240,20 +301,21 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
         const slot = first ? null : next.value;
         st.chat.push({ role: 'user', text }); ui.reply = '';
         ui.busy = true; scrollChat();
-        const r = await extract(text, st.facts, slot);
+        const r = await extract(text, st.facts, slot, ALL_EVIDENCE);
         // 已有城市时，只有在问城市这一步才改（避免公司名里的地名把城市覆盖掉）
         if (st.facts.city && !(slot && slot.key === 'city')) delete r.facts.city;
-        const changed = merge(r.facts);
+        const { changed, party, ticked } = ingest(r, '你在对话里说的');
         ui.busy = false;
-        if (first) st.chat.push({ role: 'ai', text: changed.length ? `我先复述一下听懂的：${recapOf(changed)}。` : '好的，我们一个个来。' });
-        else if (changed.length) st.chat.push({ role: 'ai', text: `记下了：${recapOf(changed)}。` });
+        const extra = (party.length ? `申请书里的${party.join('、')}已帮你填上。` : '') + (ticked.length ? `证据清单已勾上：${ticked.join('、')}。` : '');
+        if (first) st.chat.push({ role: 'ai', text: changed.length ? `我先复述一下听懂的：${recapOf(changed)}。${extra}` : extra || '好的，我们一个个来。' });
+        else if (changed.length || extra) st.chat.push({ role: 'ai', text: (changed.length ? `记下了：${recapOf(changed)}。` : '') + extra });
         else if (slot) { st.uncertain[slot.key] = (st.uncertain[slot.key] || 0) + 1; st.chat.push({ role: 'ai', text: '这个我没太读懂，换个方式问。' }); }
         askNext(); scrollChat();
       }
 
       function pick(slotKey, opt) {
         st.chat.push({ role: 'user', text: opt.label });
-        st.facts[slotKey] = opt.value; delete st.pending[slotKey];
+        st.facts[slotKey] = opt.value; st.sources[slotKey] = '你选的'; delete st.pending[slotKey];
         askNext(); scrollChat();
       }
       function notSure(slotKey) {
@@ -269,11 +331,11 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
         delete st.pending[k];
         if (v === '' || v == null) { delete st.facts[k]; delete st.manual[k]; return; }
         st.facts[k] = s.type === 'number' ? +v : v;
-        st.manual[k] = true;
+        st.manual[k] = true; st.sources[k] = '你改的';
       }
       // 用户核对后确认：模型读出的计算参数从「待确认」转为「已确认」，之后才出金额
       const pendingKeys = computed(() => W.unconfirmed(st.facts, st.pending));
-      function confirmParams() { st.pending = {}; }
+      function confirmParams() { st.pending = {}; st.confirmed = true; }
       const gate = computed(() => W.gates({ facts: st.facts, pending: st.pending, selected: st.selected, conflicts: conflicts.value, chosen: chosen.value, started: st.chat.some(m => m.role === 'user') }));
 
       function toAnalysis(confirm) {
@@ -314,7 +376,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       async function recognize(kind, tag, slot, list) {
         files[slot] = [...(files[slot] || []), ...list.map(f => ({ name: f.name, url: URL.createObjectURL(f) }))];
         const imgs = imgCaps.ok ? list.filter(f => imgCaps.accept.split(',').includes(f.type)).slice(0, imgCaps.max) : [];
-        const rec = { tag, kind, at: new Date().toISOString(), filled: [], conflicts: [], note: '', busy: true };
+        const rec = { tag, kind, at: new Date().toISOString(), filled: [], conflicts: [], keys: [], confirmed: false, note: '', busy: true };
         st.recognized.unshift(rec);
         const r = st.recognized[0];
         if (!imgs.length) {
@@ -327,11 +389,13 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
           const data = await sample.json(D.prompt(kind, tag), { images: imgs });
           if (data && data.doc_ok === false) r.note = `这张看起来不像「${tag}」，请确认上传的文件。`;
           const before = Object.fromEntries(W.CALC_KEYS.map(k => [k, st.facts[k]]));
-          const out = D.apply(kind, data, { facts: st.facts, manual: st.manual, applicant: st.app.applicant, respondent: st.app.respondent });
-          for (const k of W.CALC_KEYS) if (st.facts[k] !== before[k]) st.pending[k] = true;
+          const out = D.apply(kind, data, { facts: st.facts, manual: st.manual, applicant: st.app.applicant, respondent: st.app.respondent, sources: st.sources }, `${tag}照片`);
+          r.keys = W.CALC_KEYS.filter(k => st.facts[k] !== before[k]);
+          for (const k of r.keys) st.pending[k] = true;
+          out.asks.forEach(addAsk);
           r.filled = out.filled; r.conflicts = out.conflicts;
           if (out.wage) r.note = `按 ${out.wage.from} 至 ${out.wage.to} 共 ${out.wage.months} 个月的应发工资，平均月工资 ${E.yuan(out.wage.value)} 元（代码计算）。`;
-          if (W.CALC_KEYS.some(k => st.pending[k])) r.note = (r.note ? r.note + ' ' : '') + '读到的参数要你在「测算」页确认后才会用来算金额。';
+          if (out.asks.length) r.note = (r.note ? r.note + ' ' : '') + '有和之前不一致的地方，请在页面上方选以哪个为准。';
           if (out.reason) r.note = (r.note ? r.note + ' ' : '') + `材料上写的解除理由：「${out.reason}」`;
           if (!out.filled.length && !out.conflicts.length && !r.note) r.note = '没有读到新的信息。';
         } catch (e) {
@@ -347,16 +411,11 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
         if (!text || ui.busy) return;
         const before = Object.fromEntries(chosen.value.map(c => [c.id, { tier: c.tier, amount: c.calc && c.calc.amount }]));
         const beforeIds = analysis.value.claims.map(c => c.id);
-        const options = evidenceGroups.value.flatMap(g => g.options);
+        const options = ALL_EVIDENCE;
         ui.supp = ''; ui.busy = true;
         const r = await extract(text, st.facts, null, options);
         if (st.facts.city) delete r.facts.city;
-        const changed = merge(r.facts);
-        const ticked = [];
-        for (const tag of r.evidence || []) {
-          const g = evidenceGroups.value.find(g => g.options.includes(tag));
-          if (g && !st.evidence[g.group].includes(tag)) { st.evidence[g.group].push(tag); ticked.push(tag); }
-        }
+        const { changed, party, ticked } = ingest(r, '你补充的');
         ui.busy = false;
         const diffs = [];
         const now = analysis.value.claims;
@@ -368,6 +427,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
         }
         for (const id of Object.keys(before)) if (!now.some(c => c.id === id)) diffs.push(`${R.CLAIMS[id].title}：按补充的事实已不成立，已取消勾选`);
         st.selected = st.selected.filter(id => now.some(c => c.id === id));
+        if (party.length) diffs.push(`申请书里的${party.join('、')}已帮你填上`);
         st.supplements.push({ text, at: new Date().toISOString(), recap: recapOf(changed), ticked, diffs });
         st.evPurpose = {};   // 事实变了，证明内容要重新整理
       }
@@ -381,7 +441,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
         if (!sample) { flash('当前环境用不了模型，证明内容先用通用说明'); return; }
         ui.evBusy = true;
         try {
-          const r = await sample.json(`请为劳动仲裁证据目录逐项写「证明内容」：结合案件记录，说明每份证据能证明哪件具体的事，每项 40 字以内；只用记录里有的事实，不写金额，不做法律定性。
+          const r = await sample.json(`请为劳动仲裁证据目录逐项写「证明内容」：结合案件记录，说明每份证据能证明哪件具体的事、支持哪项请求，每项 50 字以内；只用记录里有的事实，不写金额，不做法律定性。
 证据：${items.map(i => i.tag).join('、')}
 案件记录：${JSON.stringify(record.value)}
 只输出 JSON：{"items": [{"name": "证据名称", "purpose": "证明内容"}]}`, { modelTier: 'quick' });
@@ -393,6 +453,13 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       }
 
       // 页面跳转由 flow.gates 决定，卡住时说明缺什么
+      // 补正引导问题：来自报告里「对方可能怎么说」，只帮用户想起来，不要求逐条回答
+      const guideQs = computed(() => chosen.value.flatMap(c => c.defenses).slice(0, 4).map(d => `对方可能说「${d.says}」，当时是什么情况？`));
+      // 申请书缺项时，告诉用户哪份材料能自动补上
+      const fillHint = m => /^申请人(姓名|性别|身份证号|住址)$/.test(m) ? '拍身份证可自动填写' : /^被申请人/.test(m) ? '上传营业执照或劳动合同可自动填写' : '';
+      // 识别卡上点「对」：这份材料读出的参数转为已确认
+      function confirmRec(r) { for (const k of r.keys || []) delete st.pending[k]; r.confirmed = true; }
+
       function go(p) {
         const g = gate.value[p];
         if (g && !g.open) { flash(g.why.join('；')); return; }
@@ -423,10 +490,12 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       function exportApp() { if (validate(3)) save('劳动人事争议仲裁申请书.docx', applicationDoc()); }
       async function draft() {
         ui.busy = true;
-        st.app.reasons = await draftReasons(st, chosen.value, record.value);
+        st.app.reasons = await draftReasons(st, chosen.value, record.value, evItems.value.map(i => i.tag));
         ui.busy = false;
       }
-      watch(() => st.page, p => { if (p === 'P6' && !st.app.respondent.name && st.facts.company_name) st.app.respondent.name = st.facts.company_name; });
+      // 对话里说的公司名称随时同步到被申请人名称（已填的不覆盖）
+      watch(() => st.facts.company_name, n => { if (n && !st.app.respondent.name) { st.app.respondent.name = n; st.sources['respondent.name'] = st.sources.company_name || '你在对话里说的'; } }, { immediate: true });
+      const src = path => st.sources[path] ? '来自' + st.sources[path] : '';
 
       function requestLines() { return W.requestLines(chosen.value, E.yuan); }
 
@@ -491,7 +560,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       const pct = k => totals.value.total ? (totals.value[k] / totals.value.total * 100) + '%' : '0%';
 
       return { st, ui, R, E, F, G, PAGES, model, allCities, std, stdCity, stdOrigin, imgCaps, files, upload, kindOfTag: D.kindOfTag, analysis, chosen, conflicts, totals, next, prog, factRows, evidenceGroups, arbitration,
-        answer, pick, notSure, editFact, toAnalysis, pendingKeys, confirmParams, gate, supplement, organizeEvidence, evItems, reasonProblems, appFormat, W, toggleClaim, toggleEvidence, go, newCase, openCase, appNext, exportApp, draft, requestLines,
+        answer, pick, notSure, editFact, toAnalysis, pendingKeys, confirmParams, gate, supplement, organizeEvidence, evItems, src, resolveAsk, confirmRec, guideQs, fillHint, reasonProblems, appFormat, W, toggleClaim, toggleEvidence, go, newCase, openCase, appNext, exportApp, draft, requestLines,
         save, evidenceDoc, applicationDoc, examples, useExample, fillSample, tierClass, statusClass, pct, display, labelOf, today };
     },
   }).mount('#app');

@@ -56,6 +56,8 @@ h3 { font-size: 15px; margin: 0; }
 .btn.plain { background: transparent; color: var(--muted); padding: 6px 8px; font-weight: 400; }
 .btn:disabled { opacity: .5; cursor: default; }
 .btn.block { width: 100%; }
+.src { color: var(--muted, #888); font-size: 11px; font-weight: normal; }
+.ask { border: 1px solid var(--need, #b7791f); }
 .chip { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 4px 12px; font-size: 13px; }
 .chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 
@@ -166,6 +168,12 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
   </template>
 
   <main class="wrap">
+    <!-- 信息链冲突：会影响请求或金额的不一致，由用户选以哪个为准 -->
+    <section v-for="(a, i) in st.asks" :key="a.key + i" class="card stack ask">
+      <h3>{{ a.label }}对不上，以哪个为准？</h3>
+      <div class="row"><button v-for="v in a.values" class="btn ghost" @click="resolveAsk(i, v)">{{ display(a.key, v.v) }}<small class="src">（{{ v.source }}）</small></button></div>
+      <p class="sub">两个值都会留档，之后可以在事实摘要里再改。</p>
+    </section>
     <!-- P1 事实问答 -->
     <template v-if="st.page === 'P1'">
       <section v-if="st.chat.some(m => m.role === 'user')" class="stack">
@@ -187,7 +195,7 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
             <p class="sub">点任一项直接修改。改过的会标「已手动修改」，之后补充事实也不会被覆盖。</p>
             <div class="facts">
               <div v-for="r in factRows" :key="r.key" class="fact">
-                <span>{{ r.label }}</span>
+                <span>{{ r.label }} <small class="src">{{ src(r.key) }}</small></span>
                 <select v-if="r.type === 'choice'" :id="'f-' + r.key" :value="r.value || ''" @change="e => editFact(r.key, e.target.value)">
                   <option value="">未填</option><option v-for="o in r.options" :value="o.value">{{ o.label }}</option>
                 </select>
@@ -360,6 +368,8 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
       <section class="card stack" id="supplement">
         <h2>还有什么想补充的？</h2>
         <p class="sub">看了报告和对方可能的说法，想到什么直接说：当时的经过、对方说过的话、手上还有什么证据，都可以。不用一条条对应，我会读出新的事实、勾上你提到的证据，再重新分析。</p>
+        <div v-if="!st.supplements.length" class="row"><button v-for="q in guideQs" :key="q" class="chip" @click="ui.focusQ = q">{{ q }}</button></div>
+        <p v-if="ui.focusQ" class="sub">{{ ui.focusQ }} 直接在下面说就行。</p>
         <div v-for="(m, i) in st.supplements" :key="i" class="stack">
           <div class="msg user">{{ m.text }}</div>
           <div class="msg ai">
@@ -378,11 +388,12 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
       <section v-if="st.recognized.length" class="card stack">
         <h3>从你的材料里读到</h3>
         <div v-for="(r, i) in st.recognized" :key="i" class="calc-line">
-          <b>{{ r.tag }}</b>
-          <span v-if="r.busy" class="formula">正在识别…你可以继续勾选其他材料</span>
+          <div class="row"><b class="grow">{{ r.tag }}</b><span class="sub">{{ r.busy ? '识别中' : r.keys.length && !r.confirmed ? '待确认' : '已确认' }}</span></div>
+          <span v-if="r.busy" class="formula">正在识别…你可以继续传下一份</span>
           <span v-if="r.filled.length" class="formula">已记下：{{ r.filled.join('、') }}</span>
           <span v-for="c in r.conflicts" class="formula" style="color:var(--need)">{{ c }}</span>
           <span v-if="r.note" class="formula">{{ r.note }}</span>
+          <div v-if="r.keys.length && !r.confirmed" class="row"><span class="formula grow">读到的{{ r.keys.map(k => (F.SLOTS[k] || F.PARAM_SLOTS[k]).label + ' ' + display(k, st.facts[k])).join('、') }}，对吗？不对可以在测算页直接改。</span><button class="btn plain" @click="confirmRec(r)">对</button></div>
         </div>
         <p class="sub">读到的信息已写进事实摘要和申请书，可以随时修改。</p>
       </section>
@@ -414,18 +425,19 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
             <button class="btn ghost" @click="upload('id_card', '身份证')">拍身份证自动填</button>
             <button class="btn ghost" @click="upload('license', '营业执照')">传营业执照或合同，填公司信息</button>
           </div>
-          <p class="sub" v-if="st.recognized.length">已从你上传的材料里自动填写，请核对。{{ st.recognized.some(r => r.busy) ? '还有材料在识别中…' : '' }}</p>
+          <p class="sub">你在对话里说过的、材料上读到的，都已自动填好并标了来源，只需补上空着的。</p>
+          <p class="sub" v-if="st.recognized.length">{{ st.recognized.some(r => r.busy) ? '还有材料在识别中…' : '' }}</p>
           <h3>申请人（你）</h3>
-          <label class="f">姓名<input id="a-name" v-model="st.app.applicant.name"></label>
-          <label class="f">性别<select id="a-gender" v-model="st.app.applicant.gender"><option value="">请选择</option><option>男</option><option>女</option></select></label>
-          <label class="f">身份证号<input id="a-id" v-model="st.app.applicant.id_no"></label>
-          <label class="f">住址<input id="a-addr" v-model="st.app.applicant.address"></label>
-          <label class="f">电话<input id="a-phone" v-model="st.app.applicant.phone"></label>
+          <label class="f">姓名 <small class="src">{{ src('applicant.name') }}</small><input id="a-name" v-model="st.app.applicant.name"></label>
+          <label class="f">性别 <small class="src">{{ src('applicant.gender') }}</small><select id="a-gender" v-model="st.app.applicant.gender"><option value="">请选择</option><option>男</option><option>女</option></select></label>
+          <label class="f">身份证号 <small class="src">{{ src('applicant.id_no') }}</small><input id="a-id" v-model="st.app.applicant.id_no"></label>
+          <label class="f">住址 <small class="src">{{ src('applicant.address') }}</small><input id="a-addr" v-model="st.app.applicant.address"></label>
+          <label class="f">电话 <small class="src">{{ src('applicant.phone') }}</small><input id="a-phone" v-model="st.app.applicant.phone"></label>
           <h3>被申请人（公司）</h3>
-          <label class="f">名称<input id="r-name" v-model="st.app.respondent.name"></label>
-          <label class="f">住所<input id="r-addr" v-model="st.app.respondent.address"></label>
-          <label class="f">法定代表人<input id="r-rep" v-model="st.app.respondent.legal_rep"></label>
-          <label class="f">统一社会信用代码（选填）<input id="r-code" v-model="st.app.respondent.credit_code"></label>
+          <label class="f">名称 <small class="src">{{ src('respondent.name') }}</small><input id="r-name" v-model="st.app.respondent.name"></label>
+          <label class="f">住所 <small class="src">{{ src('respondent.address') }}</small><input id="r-addr" v-model="st.app.respondent.address"></label>
+          <label class="f">法定代表人 <small class="src">{{ src('respondent.legal_rep') }}</small><input id="r-rep" v-model="st.app.respondent.legal_rep"></label>
+          <label class="f">统一社会信用代码（选填） <small class="src">{{ src('respondent.credit_code') }}</small><input id="r-code" v-model="st.app.respondent.credit_code"></label>
         </template>
         <template v-if="st.app.step === 2">
           <ol class="path"><li v-for="l in requestLines()">{{ l }}</li></ol>
@@ -436,7 +448,7 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
           <div v-for="p in reasonProblems" class="warn">请核对：{{ p }}。金额只写在「仲裁请求」里，事实与理由里的日期应和事实摘要一致。</div>
           <div class="row"><span class="sub grow">{{ ui.busy ? '正在起草…' : '由 AI 把对话、补充的细节、材料和证据合并总结，不写金额，请逐段核对修改。' }}</span><button class="btn plain" :disabled="ui.busy" @click="draft">重新起草</button></div>
         </template>
-        <div v-if="ui.missing.length" class="danger">请补充：{{ ui.missing.join('、') }}</div>
+        <div v-if="ui.missing.length" class="danger">请补充：<span v-for="(m, i) in ui.missing">{{ i ? '、' : '' }}{{ m }}<small v-if="fillHint(m)">（{{ fillHint(m) }}）</small></span></div>
         <div class="row">
           <button v-if="st.app.step > 1" class="btn ghost" @click="st.app.step--; ui.missing = []">上一步</button>
           <button v-if="st.app.step < 3" class="btn grow" @click="appNext">下一步</button>

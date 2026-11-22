@@ -81,3 +81,27 @@ test('用户原话里的金额不交给模型，日期保留', () => {
   assert.strictEqual(W.redactMoney('在苏州做了3年，月薪9000，还欠了两万块'), '在苏州做了3年，月薪[金额略]，还欠[金额略]');
   assert.strictEqual(W.redactMoney('2026年10月1日被辞退，工资8,500元'), '2026年10月1日被辞退，工资[金额略]');
 });
+
+test('信息链：对话里说的当事人信息写进申请书并记下来源，已填的不覆盖', () => {
+  const st = { facts: {}, manual: {}, applicant: { name: '', phone: '' }, respondent: { name: '已填公司' }, sources: {} };
+  const out = D.apply('chat', { applicant_name: '张三', applicant_phone: '13800000000', company_name: '某某公司' }, st, '你在对话里说的');
+  assert.strictEqual(st.applicant.name, '张三');
+  assert.strictEqual(st.applicant.phone, '13800000000');
+  assert.strictEqual(st.respondent.name, '已填公司');
+  assert.strictEqual(st.sources['applicant.phone'], '你在对话里说的');
+  assert.strictEqual(st.sources.company_name, '你在对话里说的');
+  assert.ok(out.filled.includes('电话'));
+});
+
+test('对话里说过的材料对应到证据标签', () => {
+  assert.deepStrictEqual(D.impliedEvidence({ labor_proof: 'social', termination_form: 'chat', signed_contract: 'no' }), [['labor_relation', '社保缴费记录'], ['termination', '辞退聊天记录']]);
+});
+
+test('来源优先级：证照覆盖对话里说的地址，对话不覆盖证照', () => {
+  const st = { facts: {}, manual: {}, applicant: { address: '' }, respondent: {}, sources: {} };
+  D.apply('chat', { applicant_address: '苏州' }, st, '你在对话里说的');
+  D.apply('id_card', { applicant_address: '江苏省苏州市吴中区某路 1 号' }, st, '身份证照片');
+  assert.strictEqual(st.applicant.address, '江苏省苏州市吴中区某路 1 号');
+  D.apply('chat', { applicant_address: '苏州园区' }, st, '你补充的');
+  assert.strictEqual(st.sources['applicant.address'], '身份证照片');
+});
