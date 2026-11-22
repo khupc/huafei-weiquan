@@ -12,6 +12,8 @@
     social: { title: '社保记录', fields: ['company_name', 'applicant_name', 'applicant_id_no', 'start_date'] },
     other: { title: '材料', fields: ['company_name', 'applicant_name'] },
   };
+  // 用户在第一轮对话里一股脑传上来的材料：先让模型判断是哪类，再按那一类读字段
+  const AUTO_FIELDS = [...new Set(Object.values(KINDS).flatMap(k => k.fields))];
 
   // 证据标签 → 材料类型
   const TAG_KIND = {
@@ -30,7 +32,14 @@
     termination_reason_text: '单位写明的解除理由（原文摘录，30 字以内）',
   };
 
-  function prompt(kind, tag) {
+  function prompt(kind, tag, tagOptions) {
+    if (kind === 'auto') return `这是一位劳动者为劳动仲裁上传的材料照片，类型未知。先判断它是什么，再只读照片上写着的内容提取字段；看不清、没有写的不要输出，不要猜。
+kind：contract（劳动合同或录用通知）|id_card（身份证）|license（营业执照）|termination（解除通知、离职证明）|wage（工资条、工资流水、个税记录）|social（社保缴费记录）|other（聊天截图、考勤、工牌等其他）
+tag：从这个清单里选最贴切的一项，没有合适的输出空字符串：${(tagOptions || []).join('、')}
+字段：
+${AUTO_FIELDS.map(f => `${f}: ${FIELD_DESC[f]}`).join('\n')}
+另外输出 summary：一句话说这张材料能看出什么事实（不写金额，30 字以内）。
+只输出 JSON，例如 {"kind": "contract", "tag": "劳动合同", "company_name": "..."}`;
     const k = KINDS[kind];
     return `这是一位劳动者为劳动仲裁上传的「${tag || k.title}」照片。请只读照片上写着的内容，提取下面的字段；看不清、没有写的字段不要输出，不要猜。
 字段：
@@ -119,7 +128,7 @@ ${k.fields.map(f => `${f}: ${FIELD_DESC[f]}`).join('\n')}
     return Object.entries(FACT_EVIDENCE).map(([k, m]) => m[facts[k]]).filter(Boolean);
   }
 
-  const api = { KINDS, TAG_KIND, kindOfTag, prompt, apply, averageGross, impliedEvidence, rank, DECISIVE };
+  const api = { AUTO_FIELDS, KINDS, TAG_KIND, kindOfTag, prompt, apply, averageGross, impliedEvidence, rank, DECISIVE };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.LA = Object.assign(root.LA || {}, { docs: api });
 })(this);

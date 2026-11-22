@@ -34,9 +34,26 @@ company_name: 字符串
 labor_proof: social|payroll|badge|chat|none（没签合同时，能证明劳动关系的最有力材料：社保记录 / 单位账户发的工资流水 / 工牌工作证或考勤 / 只有工作群聊天 / 都没有）
 applicant_name / applicant_gender(男|女) / applicant_phone / applicant_id_no / applicant_address: 劳动者本人的姓名、性别、电话、身份证号、住址（用户说了才输出）
 company_address / legal_rep: 公司地址、法定代表人姓名（用户说了才输出）
+user_claims: 数组，用户自己已经得出的主张（比如问过别的 AI 或律师），每项 {"claim": illegal_termination（违法解除赔偿金/2N）|economic_compensation（经济补偿/N）|notice_pay（代通知金/N+1 里的 1）|double_wage（未签合同二倍工资）|unpaid_wages（拖欠工资）|reinstatement（恢复劳动关系）, "amount": 用户自己说的金额数字或 null}；用户没提自己的主张就不输出
 other_issues: 数组，可含 overtime|annual_leave|social_insurance|work_injury（受伤、工伤、职业病）|platform_work（外卖骑手、网约车等平台接单，或外包）|dispatch（劳务派遣）|subcontract（挂靠、包工头、违法转包分包）`;
 
   // evidenceOptions：补正时传入证据清单，模型顺带说出用户提到了哪些证据
+  // 用户自己带来的结论：只记下来，金额由代码重算后对照
+  const CLAIM_IDS = ['illegal_termination', 'economic_compensation', 'notice_pay', 'double_wage', 'unpaid_wages', 'reinstatement'];
+  function pickClaims(arr) {
+    const out = {};
+    for (const c of Array.isArray(arr) ? arr : []) if (c && CLAIM_IDS.includes(c.claim)) { const n = +String(c.amount == null ? '' : c.amount).replace(/[,，元\s]/g, ''); out[c.claim] = n > 0 ? n : null; }
+    return out;
+  }
+  function keywordClaims(text) {
+    const out = {};
+    const amt = re => { const m = text.match(re); return m ? +m[1].replace(/,/g, '') * (m[2] ? 10000 : 1) || null : null; };
+    if (/2N|违法解除.*赔偿|赔偿金/.test(text)) out.illegal_termination = amt(/(?:2N|赔偿金)[^\d]{0,6}([\d,.]+)\s*(万)?/);
+    if (/二倍工资|双倍工资/.test(text)) out.double_wage = amt(/(?:二倍|双倍)工资[^\d]{0,6}([\d,.]+)\s*(万)?/);
+    if (/经济补偿|补偿金/.test(text) && !out.illegal_termination) out.economic_compensation = amt(/(?:经济补偿|补偿金)[^\d]{0,6}([\d,.]+)\s*(万)?/);
+    if (/代通知金|N\+1/.test(text)) out.notice_pay = null;
+    return out;
+  }
   const PARTY_KEYS = ['applicant_name', 'applicant_gender', 'applicant_phone', 'applicant_id_no', 'applicant_address', 'company_name', 'company_address', 'legal_rep'];
   const pickParties = o => Object.fromEntries(PARTY_KEYS.filter(k => typeof o[k] === 'string' && o[k].trim()).map(k => [k, o[k].trim()]));
   function keywordParties(text) {
@@ -61,7 +78,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       try {
         const r = await sample.json(prompt, { modelTier: 'quick' });
         model.status = 'Claude';
-        if (r && typeof r === 'object') return { facts: clean(r.facts || {}), parties: pickParties(r.facts || {}), evidence: (evidenceOptions && Array.isArray(r.evidence) ? r.evidence.filter(e => evidenceOptions.includes(e)) : []), by: 'model' };
+        if (r && typeof r === 'object') return { facts: clean(r.facts || {}), parties: pickParties(r.facts || {}), claims: pickClaims((r.facts || {}).user_claims), evidence: (evidenceOptions && Array.isArray(r.evidence) ? r.evidence.filter(e => evidenceOptions.includes(e)) : []), by: 'model' };
       } catch (e) {
         if (e && e.code === 'not_granted') { model.ok = false; model.status = '关键词版（你没有授权使用 Claude）'; }
       }
@@ -72,7 +89,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
     if (currentSlot && !kw[currentSlot.key]) Object.assign(kw, directAnswer(currentSlot, text));
     const has = o => { const i = text.indexOf(o); return i >= 0 && !/[没未无不]/.test(text.slice(Math.max(0, i - 4), i)); };
     const evidence = (evidenceOptions || []).filter(o => has(o) || (o === '通话录音' && /录音/.test(text)) || (o === '辞退聊天记录' && /聊天|截图/.test(text) && /辞|别来/.test(text)));
-    return { facts: kw, parties: keywordParties(text), evidence, by: 'keyword' };
+    return { facts: kw, parties: keywordParties(text), claims: keywordClaims(text), evidence, by: 'keyword' };
   }
 
   // 只收清单里有的字段和合法取值
@@ -158,13 +175,13 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
 
   function blankCase() {
     return {
-      id: 'c' + Date.now(), updated: null, page: 'P1', facts: {}, manual: {}, uncertain: {}, pending: {}, supplements: [], evPurpose: {}, sources: {}, autoTicked: [], asks: [], archive: [], confirmed: false,
+      id: 'c' + Date.now(), updated: null, page: 'P1', facts: {}, manual: {}, uncertain: {}, pending: {}, supplements: [], evPurpose: {}, sources: {}, autoTicked: [], asks: [], archive: [], confirmed: false, userClaims: {},
       chat: [{ role: 'ai', text: GREETING }], evidence: { labor_relation: [], wage: [], termination: [] }, selected: [], recognized: [], avgWage: null, minWage: null, regAvgWage: null, regMinWage: null,
       app: { applicant: { name: '', gender: '', id_no: '', address: '', phone: '' }, respondent: { name: '', address: '', legal_rep: '', credit_code: '' }, reasons: '', step: 1 },
     };
   }
 
-  const GREETING = '你好，我是劳动仲裁助手。先用一两句话说说发生了什么：在哪个城市上班、干了多久、工资多少、公司做了什么。说不全也没关系，我再接着问。';
+  const GREETING = '你好，我是劳动仲裁助手。先说说发生了什么：在哪个城市上班、干了多久、工资多少、公司做了什么。说不全也没关系，我再接着问。\n如果你已经了解过，也可以把你的结论（比如想要 2N 赔偿、算的金额）和手上的材料一次发过来，点「＋材料」上传合同、身份证、聊天截图等。我会核对哪些对，你只需要确认，缺的再问你。';
   const PAGES = [
     { id: 'P1', name: '对话' }, { id: 'P2', name: '分析' }, { id: 'P3', name: '测算' },
     { id: 'P4', name: '报告' }, { id: 'P5', name: '证据' }, { id: 'P6', name: '申请书' },
@@ -252,7 +269,9 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
         const party = D.apply('chat', r.parties || {}, { facts: st.facts, manual: st.manual, applicant: st.app.applicant, respondent: st.app.respondent, sources: st.sources }, source);
         (party.asks || []).forEach(addAsk);
         const ticked = tickEvidence(r.evidence || []);
-        return { changed, party: party.filled, ticked };
+        const claims = Object.keys(r.claims || {});
+        for (const id of claims) st.userClaims[id] = r.claims[id] != null ? r.claims[id] : (st.userClaims[id] != null ? st.userClaims[id] : null);
+        return { changed, party: party.filled, ticked, claims };
       }
       function tickEvidence(tags) {
         const ticked = [];
@@ -304,9 +323,10 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
         const r = await extract(text, st.facts, slot, ALL_EVIDENCE);
         // 已有城市时，只有在问城市这一步才改（避免公司名里的地名把城市覆盖掉）
         if (st.facts.city && !(slot && slot.key === 'city')) delete r.facts.city;
-        const { changed, party, ticked } = ingest(r, '你在对话里说的');
+        const { changed, party, ticked, claims } = ingest(r, '你在对话里说的');
         ui.busy = false;
-        const extra = (party.length ? `申请书里的${party.join('、')}已帮你填上。` : '') + (ticked.length ? `证据清单已勾上：${ticked.join('、')}。` : '');
+        const extra = (party.length ? `申请书里的${party.join('、')}已帮你填上。` : '') + (ticked.length ? `证据清单已勾上：${ticked.join('、')}。` : '')
+          + (claims.length ? `你提到要主张：${claims.map(id => R.CLAIMS[id].title + (st.userClaims[id] != null ? `（你算的 ${E.yuan(st.userClaims[id])} 元）` : '')).join('、')}。我会按你的事实逐项核对能不能主张，金额按法定公式重算后和你的对照。` : '');
         if (first) st.chat.push({ role: 'ai', text: changed.length ? `我先复述一下听懂的：${recapOf(changed)}。${extra}` : extra || '好的，我们一个个来。' });
         else if (changed.length || extra) st.chat.push({ role: 'ai', text: (changed.length ? `记下了：${recapOf(changed)}。` : '') + extra });
         else if (slot) { st.uncertain[slot.key] = (st.uncertain[slot.key] || 0) + 1; st.chat.push({ role: 'ai', text: '这个我没太读懂，换个方式问。' }); }
@@ -341,6 +361,8 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       function toAnalysis(confirm) {
         if (confirm === true) confirmParams();
         // 默认勾选：先按离职方式对应的补偿类型（2N / N / N+代通知金），再补上不互斥的其他请求；恢复劳动关系不默认勾
+        const mine = Object.keys(st.userClaims).filter(id => analysis.value.claims.some(c => c.id === id));
+        if (!st.selected.length && mine.length) { for (const id of mine) if (!E.conflicts([...st.selected, id]).length) st.selected.push(id); }
         if (!st.selected.length) {
           const pref = { '2N': ['illegal_termination'], N: ['economic_compensation'], 'N+notice': ['economic_compensation', 'notice_pay'] }[(analysis.value.severance || {}).type] || [];
           const ids = analysis.value.claims.map(c => c.id).filter(id => id !== 'reinstatement');
@@ -373,20 +395,46 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
         inp.onchange = () => { const list = [...inp.files]; if (list.length) recognize(kind, tag, slot || tag, list); };
         inp.click();
       }
+      // 第一轮对话里直接传材料：每张单独识别类型，读到的写进信息链、勾上证据，在对话里回报
+      function uploadInChat() {
+        const inp = document.createElement('input');
+        inp.type = 'file'; inp.multiple = true; inp.accept = imgCaps.ok ? imgCaps.accept + ',application/pdf' : 'image/*,application/pdf';
+        inp.onchange = async () => {
+          const list = [...inp.files]; if (!list.length) return;
+          st.chat.push({ role: 'user', text: `上传了 ${list.length} 份材料：${list.map(f => f.name).join('、')}` });
+          ui.busy = true; scrollChat();
+          const lines = [];
+          for (const f of list) {
+            const r = await recognize('auto', '', 'chat|' + f.name, [f]);
+            lines.push(`「${r.tag}」` + (r.filled.length ? `：记下了${r.filled.join('、')}` : '') + (r.ticked ? '，已放进证据清单' : '') + (r.note ? `（${r.note}）` : ''));
+          }
+          ui.busy = false;
+          st.chat.push({ role: 'ai', text: lines.join('\n') + (st.asks.length ? '\n有和你说的对不上的地方，请在上方选以哪个为准。' : '') + (W.CALC_KEYS.some(k => st.pending[k]) ? '\n读到的日期和工资在测算页核对一下就行。' : '') });
+          askNext(); scrollChat();
+        };
+        inp.click();
+      }
       async function recognize(kind, tag, slot, list) {
         files[slot] = [...(files[slot] || []), ...list.map(f => ({ name: f.name, url: URL.createObjectURL(f) }))];
         const imgs = imgCaps.ok ? list.filter(f => imgCaps.accept.split(',').includes(f.type)).slice(0, imgCaps.max) : [];
-        const rec = { tag, kind, at: new Date().toISOString(), filled: [], conflicts: [], keys: [], confirmed: false, note: '', busy: true };
+        const rec = { tag: tag || '材料', kind, ticked: false, at: new Date().toISOString(), filled: [], conflicts: [], keys: [], confirmed: false, note: '', busy: true };
         st.recognized.unshift(rec);
         const r = st.recognized[0];
         if (!imgs.length) {
           r.busy = false;
           r.note = imgCaps.ok ? '已附上。PDF 暂时不能识别，请上传照片或截图。' : '已附上。当前环境不能识别图片，相关信息请手动填写。';
-          return;
+          return r;
         }
         try {
           const sample = await samplePromise;
-          const data = await sample.json(D.prompt(kind, tag), { images: imgs });
+          const data = await sample.json(D.prompt(kind, tag, ALL_EVIDENCE), { images: imgs });
+          if (kind === 'auto') {
+            kind = D.KINDS[data && data.kind] ? data.kind : 'other';
+            tag = ALL_EVIDENCE.includes(data && data.tag) ? data.tag : D.KINDS[kind].title;
+            r.kind = kind; r.tag = tag;
+            if (ALL_EVIDENCE.includes(tag)) r.ticked = tickEvidence([tag]).length > 0;
+            if (data && data.summary && !/元/.test(data.summary)) r.note = String(data.summary);
+          }
           if (data && data.doc_ok === false) r.note = `这张看起来不像「${tag}」，请确认上传的文件。`;
           const before = Object.fromEntries(W.CALC_KEYS.map(k => [k, st.facts[k]]));
           const out = D.apply(kind, data, { facts: st.facts, manual: st.manual, applicant: st.app.applicant, respondent: st.app.respondent, sources: st.sources }, `${tag}照片`);
@@ -402,6 +450,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
           r.note = e && e.code === 'not_granted' ? '你没有授权使用 Claude，没法识别，相关信息请手动填写。' : '识别没有成功，可以换一张清楚点的照片再试。';
         }
         r.busy = false;
+        return r;
       }
       // ---------- 补正：报告之后，用户想到什么说什么（质证、补充细节、手上有什么证据） ----------
       // 照样走「模型抽事实 → 代码合并（计算参数待确认）→ 代码重算」，前后变化由代码列出；提到的证据自动勾上
@@ -453,6 +502,20 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       }
 
       // 页面跳转由 flow.gates 决定，卡住时说明缺什么
+      // 用户自己带来的结论 vs 代码结论：能不能主张、金额差多少（全由代码判断）
+      const claimCheck = computed(() => {
+        const out = { notApplicable: [], amounts: {} };
+        for (const [id, amt] of Object.entries(st.userClaims)) {
+          const c = analysis.value.claims.find(x => x.id === id);
+          if (!c) {
+            const why = Object.entries(R.CLAIMS[id].ruled_out_when || {}).filter(([k, vals]) => vals.includes(st.facts[k])).map(([k]) => `${F.SLOTS[k].label}：${labelOf(k, st.facts[k])}`);
+            out.notApplicable.push({ title: R.CLAIMS[id].title, why: why.join('；') });
+            continue;
+          }
+          if (amt != null) out.amounts[id] = { mine: amt, code: c.calc && c.calc.amount, same: c.calc && c.calc.amount != null && Math.abs(c.calc.amount - amt) < 1 };
+        }
+        return out;
+      });
       // 当事人信息是否已齐（证据页传身份证、营业执照后自动填）
       const partyMissing = computed(() => W.requiredMissing(st.app, [{}]).filter(m => /^(申请人|被申请人)/.test(m)));
       const partyDone = computed(() => ({ applicant: !partyMissing.value.some(m => /^申请人(姓名|性别|身份证号|住址)$/.test(m)), respondent: !partyMissing.value.some(m => /^被申请人/.test(m)) }));
@@ -563,7 +626,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       const pct = k => totals.value.total ? (totals.value[k] / totals.value.total * 100) + '%' : '0%';
 
       return { st, ui, R, E, F, G, PAGES, model, allCities, std, stdCity, stdOrigin, imgCaps, files, upload, kindOfTag: D.kindOfTag, analysis, chosen, conflicts, totals, next, prog, factRows, evidenceGroups, arbitration,
-        answer, pick, notSure, editFact, toAnalysis, pendingKeys, confirmParams, gate, supplement, organizeEvidence, evItems, src, resolveAsk, confirmRec, guideQs, fillHint, partyMissing, partyDone, reasonProblems, appFormat, W, toggleClaim, toggleEvidence, go, newCase, openCase, appNext, exportApp, draft, requestLines,
+        answer, pick, notSure, editFact, toAnalysis, pendingKeys, confirmParams, gate, supplement, organizeEvidence, evItems, src, resolveAsk, confirmRec, guideQs, fillHint, partyMissing, partyDone, claimCheck, uploadInChat, reasonProblems, appFormat, W, toggleClaim, toggleEvidence, go, newCase, openCase, appNext, exportApp, draft, requestLines,
         save, evidenceDoc, applicationDoc, examples, useExample, fillSample, tierClass, statusClass, pct, display, labelOf, today };
     },
   }).mount('#app');

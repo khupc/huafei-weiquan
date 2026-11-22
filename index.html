@@ -215,6 +215,7 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
       <div class="composer wrap">
         <div class="inner">
           <textarea id="reply" class="grow" rows="1" style="min-height:44px" v-model="ui.reply" :placeholder="st.chat.some(m => m.role === 'user') ? '直接打字回答，或点上面的选项' : '例如：在苏州做了 3 年仓库主管，月薪 9000，上个月被口头辞退，没签合同'" @keydown.enter.exact.prevent="answer()"></textarea>
+          <button id="chat-upload" class="btn ghost" :disabled="ui.busy" title="上传合同、身份证、聊天截图等材料" @click="uploadInChat">＋材料</button>
           <button class="btn" :disabled="ui.busy || !ui.reply.trim()" @click="answer()">发送</button>
         </div>
       </div>
@@ -249,6 +250,8 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
         <div class="els">
           <div v-for="e in c.elements" :key="e.key" class="el"><span>{{ e.label }}</span><span :class="statusClass(e.status)">{{ e.status }}</span></div>
         </div>
+        <div v-if="claimCheck.amounts[c.id]" class="row"><span class="sub grow">你自己算的</span><span>{{ E.yuan(claimCheck.amounts[c.id].mine) }} 元</span></div>
+        <div v-if="claimCheck.amounts[c.id] && !pendingKeys.length && !claimCheck.amounts[c.id].same && claimCheck.amounts[c.id].code != null" class="warn">和按法定公式算的不一样，请在测算页对照公式核对月工资、工作年限等参数。</div>
         <div v-if="c.calc" class="row"><span class="sub grow">估算可主张</span><span class="amount">{{ pendingKeys.length ? '确认参数后计算' : c.calc.amount != null ? E.yuan(c.calc.amount) + ' 元' : '缺' + c.calc.lack.join('、') }}</span></div>
         <div v-for="d in c.disputes" class="warn">争议点：{{ d }}</div>
         <details>
@@ -257,6 +260,7 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
           <p class="sub">规则编号 {{ c.ref.join('、') }}。条号已按校准文档核对，原文入库前还要对国家法律法规数据库复核。</p>
         </details>
       </article>
+      <div v-for="n in claimCheck.notApplicable" class="warn">你提到的「{{ n.title }}」按目前的事实不能主张{{ n.why ? '，因为你说的是「' + n.why + '」' : '，还缺前提条件' }}。如果这项事实不对，在事实摘要里改，或回到对话补充。</div>
       <div v-for="p in conflicts" class="danger">「{{ p[0] }}」和「{{ p[1] }}」只能二选一，请取消其中一项。</div>
       <section v-if="analysis.unsupported.length" class="card stack">
         <h3>还识别到这些问题</h3>
