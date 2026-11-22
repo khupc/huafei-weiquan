@@ -31,8 +31,8 @@
     const lim = x.limitation ? { ...x.limitation, daysLeft: x.today ? Math.round((d(x.limitation.deadline) - d(x.today)) / DAY) : null } : null;
     if (f.separation === 'still_employed') items.push({ label: '时效', status: 'ok', note: '在职期间追讨欠薪不受 1 年时效限制，离职后要在 1 年内申请（调解仲裁法第 27 条）。' });
     else if (!lim) items.push({ label: '时效', status: 'info', note: '离职日期还没确认，确认后计算。' });
-    else if (lim.expired) items.push({ label: '时效', status: 'risk', note: `离职已超过 1 年（截止 ${lim.deadline}）。仍可申请，但公司可能提出时效抗辩；向公司讨要过、向劳动监察投诉过的记录可以中断时效。` });
-    else if (lim.daysLeft != null && lim.daysLeft <= 60) items.push({ label: '时效', status: 'risk', note: `还剩 ${lim.daysLeft} 天（截止 ${lim.deadline}）。先提交保住时效，证据可以之后补。` });
+    else if (lim.expired) items.push({ label: '时效', status: 'risk', daysLeft: lim.daysLeft, note: `离职已超过 1 年（截止 ${lim.deadline}）。仍可申请，但公司可能提出时效抗辩；向公司讨要过、向劳动监察投诉过的记录可以中断时效。` });
+    else if (lim.daysLeft != null && lim.daysLeft <= 60) items.push({ label: '时效', status: 'risk', daysLeft: lim.daysLeft, note: `还剩 ${lim.daysLeft} 天（截止 ${lim.deadline}）。先提交保住时效，证据可以之后补。` });
     else items.push({ label: '时效', status: 'ok', note: `在 1 年时效内，截止 ${lim ? lim.deadline : ''}。` });
     // 去哪个仲裁委
     items.push({ label: '去哪个仲裁委', status: x.arbitration ? 'ok' : 'info', note: x.arbitration ? `${x.arbitration}（工作地；公司所在地的仲裁委也可以，调解仲裁法第 21 条）。区县级还是市级受理各地分工不同，待核。` : '工作城市还没确认。' });

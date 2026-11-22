@@ -570,6 +570,8 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       const materialList = computed(() => P.materials({ copies: copyCount.value, hasAgent: st.app.agent.on, evidenceCount: evItems.value.length, evidencePages: evPages.value }));
       const checkItems = computed(() => P.checklist({ copies: copyCount.value, hasAgent: st.app.agent.on, hasRecording: hasRecording.value }));
       const events = computed(() => P.timeline(st.submission));
+      // 时效不到 30 天不推荐邮寄：邮寄日算不算申请日没有明确规定（律师线程校准文档 7.9）
+      const mailRisky = computed(() => eligible.value.items.some(i => i.label === '时效' && i.daysLeft != null && i.daysLeft < 30));
       const limitNear = computed(() => eligible.value.items.some(i => i.label === '时效' && i.status === 'risk'));
       // 回执拍照：模型只读日期和编号，写进时间线
       function uploadReceipt() {
@@ -801,7 +803,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       const pct = k => totals.value.total ? (totals.value[k] / totals.value.total * 100) + '%' : '0%';
 
       return { st, ui, R, E, F, G, PAGES, model, allCities, std, stdCity, stdOrigin, imgCaps, files, upload, kindOfTag: D.kindOfTag, analysis, chosen, conflicts, totals, next, prog, factRows, evidenceGroups, arbitration,
-        answer, pick, notSure, editFact, toAnalysis, pendingKeys, confirmParams, gate, supplement, organizeEvidence, evItems, src, resolveAsk, confirmRec, guideQs, fillHint, suggestMiss, partyMissing, partyDone, claimCheck, uploadInChat, eligible, institution, platformSteps, copyText, saveEvidenceZip, copyCount, materialList, checkItems, events, limitNear, uploadReceipt, saveIcs, serviceAddressDoc, powerOfAttorneyDoc, printListDoc, printPackage, hasRecording, reasonProblems, appFormat, W, toggleClaim, toggleEvidence, go, newCase, openCase, appNext, exportApp, draft, requestLines,
+        answer, pick, notSure, editFact, toAnalysis, pendingKeys, confirmParams, gate, supplement, organizeEvidence, evItems, src, resolveAsk, confirmRec, guideQs, fillHint, suggestMiss, partyMissing, partyDone, claimCheck, uploadInChat, eligible, institution, platformSteps, copyText, saveEvidenceZip, copyCount, materialList, checkItems, events, limitNear, mailRisky, uploadReceipt, saveIcs, serviceAddressDoc, powerOfAttorneyDoc, printListDoc, printPackage, hasRecording, reasonProblems, appFormat, W, toggleClaim, toggleEvidence, go, newCase, openCase, appNext, exportApp, draft, requestLines,
         save, evidenceDoc, applicationDoc, examples, useExample, fillSample, tierClass, statusClass, pct, display, labelOf, today };
     },
   }).mount('#app');

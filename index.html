@@ -576,7 +576,9 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
       <section class="card stack">
         <h2>{{ appFormat.online && appFormat.online.recommend ? '其他提交方式' : '三种提交方式' }}</h2>
         <div class="calc-line"><b>现场提交（最稳妥）</b><span class="formula">带上打印好的整套材料和身份证原件，到窗口递交。<b>一定要索要收件回执</b>并拍照：材料不齐的，仲裁委会当场或 5 个工作日内一次性告诉你要补什么（办案规则第 29 条）。</span></div>
-        <div class="calc-line"><b>邮寄</b><span class="formula">{{ appFormat.mail || '当地是否接受邮寄、寄到哪里，待核，寄之前先打电话确认。' }}建议用 EMS 并保留单号。</span></div>
+        <div class="calc-line stack"><b>邮寄（先打电话确认这个仲裁委接受邮寄）</b><span class="formula">{{ appFormat.mail || '法律只要求书面申请，没有禁止邮寄，接不接受由各仲裁委自己定。寄到哪里，打电话问清楚。' }}</span>
+          <div v-if="mailRisky" class="warn">离时效届满不到 30 天，不推荐邮寄：邮寄那天算不算申请日没有明确规定。请本人或委托代理人到窗口提交。</div>
+          <span class="formula">① 用 EMS 等能查物流的方式寄，保留寄件凭证和材料清单。② 寄出后打电话确认对方收到没有、受理没有。</span></div>
         <div class="calc-line"><b>线上</b><span class="formula" v-if="appFormat.online && appFormat.online.recommend">见上方「推荐线上提交」。</span><span class="formula" v-else-if="appFormat.online">{{ appFormat.online.name }}：<a :href="appFormat.online.url" target="_blank" rel="noopener">{{ appFormat.online.url }}</a>。按页面提示逐项上传：申请书、证据清单、证据照片、身份证正反面。</span><span class="formula" v-else-if="appFormat.online_note">{{ appFormat.online_note }}</span><span class="formula" v-else>全国没有统一的线上仲裁入口，当地线上渠道待核。人社部的在线调解平台只办调解，不办仲裁申请。</span></div>
       </section>
       <section class="card stack">
