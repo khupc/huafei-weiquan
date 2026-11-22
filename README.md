@@ -17,7 +17,9 @@
 | 口语意图归纳、追问 | 模型（不可用时退回关键词） | `web/app.js` 的 `extract`；追问顺序由 `engine/facts.js` 决定 |
 | 证据照片识别（劳动合同、身份证、营业执照、解除通知、工资条、社保） | 模型只抄照片上的字段，写入规则由代码定 | `engine/docs.js` |
 | 工资条平均月工资 | 模型只抄每月应发/实发，平均数由代码算 | `engine/docs.js` 的 `averageGross` |
-| 事实与理由润色 | 模型，只拿用户确认过的事实，不给金额；输出经代码校验（不许有金额、不许有事实之外的日期），不合格退回代码模板 | `web/app.js` 的 `draftReasons`、`engine/flow.js` 的 `checkReasons` |
+| 补正对话（报告后想到啥说啥：质证、细节、手上的证据） | 模型抽事实和提到的证据，代码合并、重算并列出变化 | `web/app.js` 的 `supplement` |
+| 合并案件记录 | 纯代码：对话、补正、材料识别、证据、请求汇成一份，去掉金额和待确认参数 | `engine/flow.js` 的 `buildRecord` |
+| 事实与理由、证据目录「证明内容」 | 模型根据合并记录总结，不给金额；输出经代码校验（不许有金额、不许有记录之外的日期），不合格退回代码模板 | `web/app.js` 的 `draftReasons`、`organizeEvidence`，`engine/flow.js` 的 `checkReasons` |
 | 金额：工作年限折算、社平 3 倍封顶、12 年上限、最低工资兜底、二倍工资 11 个月上限与时效、欠薪 | 纯代码 | `engine/engine.js` |
 | 补偿类型判定：2N / N / N+代通知金 / 0 | 纯代码 | `engine/engine.js` 的 `severance` |
 | 流程状态机：哪一步能进、卡在哪 | 纯代码 | `engine/flow.js` 的 `gates` |

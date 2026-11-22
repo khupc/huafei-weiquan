@@ -77,7 +77,33 @@
     return problems;
   }
 
-  const api = { CALC_KEYS, unconfirmed, gates, REQUIRED, requiredMissing, requestLines, checkReasons };
+  // 合并案件信息：对话、补正时补充的细节、材料识别结果、证据勾选、请求与分档，汇成一份给模型总结用的记录。
+  // 只放用户确认过的事实，不放任何金额（金额只在申请书的「仲裁请求」里由代码填）。
+  const MONEY_KEYS = ['monthly_wage', 'wages_owed_amount', 'monthly_overtime'];
+  // 用户原话里的金额也不交给模型：「月薪9000」「欠了两万块」→「月薪[金额略]」
+  function redactMoney(t) {
+    return t
+      .replace(/(月薪|工资|底薪|薪水|欠|赔偿?|补偿|发了|给了)\s*(大概|大约|约|是|了|我)?\s*[\d一二三四五六七八九十两百千万,.]+\s*(万|千|k|K)?\s*(元|块钱?)?/g, '$1[金额略]')
+      .replace(/[\d,.]+\s*(万|千)?\s*(元|块钱?)/g, '[金额略]');
+  }
+  function buildRecord(c) {
+    const pending = c.pending || {};
+    const facts = Object.fromEntries(Object.entries(c.facts || {}).filter(([k, v]) => !pending[k] && !MONEY_KEYS.includes(k) && v != null && v !== ''));
+    const words = [
+      // 回答金额类追问的那句（例如只答了「9000」）整句不放
+      ...(c.chat || []).filter((m, i, all) => m.role === 'user' && !(all[i - 1] && all[i - 1].type === 'number')).map(m => m.text),
+      ...(c.supplements || []).map(s => s.text),
+    ].map(t => redactMoney(String(t || '').trim())).filter(Boolean);
+    return {
+      confirmed_facts: facts,
+      user_words: words,
+      materials: (c.recognized || []).filter(r => !r.busy).map(r => ({ name: r.tag, read: r.filled, note: r.note && !/元/.test(r.note) ? r.note : undefined })),
+      evidence: Object.values(c.evidence || {}).flat(),
+      claims: (c.chosen || []).map(x => ({ title: x.title, tier: x.tier, disputes: x.disputes || [] })),
+    };
+  }
+
+  const api = { CALC_KEYS, unconfirmed, gates, REQUIRED, requiredMissing, requestLines, checkReasons, buildRecord, redactMoney };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.LA = Object.assign(root.LA || {}, { flow: api });
 })(this);

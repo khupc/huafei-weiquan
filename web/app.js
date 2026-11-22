@@ -34,7 +34,8 @@ company_name: 字符串
 labor_proof: social|payroll|badge|chat|none（没签合同时，能证明劳动关系的最有力材料：社保记录 / 单位账户发的工资流水 / 工牌工作证或考勤 / 只有工作群聊天 / 都没有）
 other_issues: 数组，可含 overtime|annual_leave|social_insurance|work_injury（受伤、工伤、职业病）|platform_work（外卖骑手、网约车等平台接单，或外包）|dispatch（劳务派遣）|subcontract（挂靠、包工头、违法转包分包）`;
 
-  async function extract(text, facts, currentSlot) {
+  // evidenceOptions：补正时传入证据清单，模型顺带说出用户提到了哪些证据
+  async function extract(text, facts, currentSlot, evidenceOptions) {
     const sample = await samplePromise;
     if (sample) {
       const prompt = `你是劳动争议咨询助手，只做一件事：从劳动者的话里抽取事实，输出 JSON。
@@ -43,13 +44,13 @@ other_issues: 数组，可含 overtime|annual_leave|social_insurance|work_injury
 ${currentSlot ? `刚才问用户的问题是：「${currentSlot.ask}」（对应字段 ${currentSlot.key}）。\n` : ''}已知事实：${JSON.stringify(facts)}
 字段与取值：
 ${SLOT_SCHEMA}
-输出格式：{"facts": {...}}
+${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据，只能从这个清单里选：${evidenceOptions.join('、')}\n输出格式：{"facts": {...}, "evidence": [...]}` : '输出格式：{"facts": {...}}'}
 
 用户说：${text}`;
       try {
         const r = await sample.json(prompt, { modelTier: 'quick' });
         model.status = 'Claude';
-        if (r && typeof r === 'object') return { facts: clean(r.facts || {}), by: 'model' };
+        if (r && typeof r === 'object') return { facts: clean(r.facts || {}), evidence: (evidenceOptions && Array.isArray(r.evidence) ? r.evidence.filter(e => evidenceOptions.includes(e)) : []), by: 'model' };
       } catch (e) {
         if (e && e.code === 'not_granted') { model.ok = false; model.status = '关键词版（你没有授权使用 Claude）'; }
       }
@@ -58,7 +59,8 @@ ${SLOT_SCHEMA}
     const city = findCity(text);
     if (city) kw.city = city;
     if (currentSlot && !kw[currentSlot.key]) Object.assign(kw, directAnswer(currentSlot, text));
-    return { facts: kw, by: 'keyword' };
+    const evidence = (evidenceOptions || []).filter(o => text.includes(o) || (o === '通话录音' && /录音/.test(text)) || (o === '辞退聊天记录' && /聊天|截图/.test(text) && /辞|别来/.test(text)));
+    return { facts: kw, evidence, by: 'keyword' };
   }
 
   // 只收清单里有的字段和合法取值
@@ -101,26 +103,21 @@ ${SLOT_SCHEMA}
     return {};
   }
 
-  async function draftReasons(st, claims) {
+  // 事实与理由：把对话、补正、材料识别、证据、请求合并成一份记录（flow.buildRecord，不含金额和待确认参数），交模型总结
+  async function draftReasons(st, claims, record) {
     const fallback = templateReasons(st, claims);
     const sample = await samplePromise;
     if (!sample) return fallback;
-    // 只给模型用户确认过的事实；不给金额，也不许它写金额（金额只在「仲裁请求」里由代码填）
-    const facts = Object.fromEntries(Object.entries(st.facts).filter(([k]) => !(st.pending || {})[k] && !['monthly_wage', 'wages_owed_amount', 'monthly_overtime'].includes(k)));
-    const details = rebuttalTexts(st);
-    const prompt = `请为劳动仲裁申请书润色「事实与理由」部分。要求：第三人称称「申请人」「被申请人」；按时间顺序陈述事实；只使用下面给出的事实，不要补充任何没给出的事实、日期或数字；不要写任何金额；不要做法律定性，不要写法条；最后一段写「为维护申请人的合法权益，特依法申请仲裁，请求支持申请人的仲裁请求。」；300 字以内；只输出正文。
-事实：${JSON.stringify(facts)}
-仲裁请求事项：${claims.map(c => c.title).join('；')}${details.length ? '\n申请人自己补充的细节（可以用，但不要写其中的金额）：' + details.join('；') : ''}`;
+    const prompt = `请根据下面这份劳动争议案件记录，为劳动仲裁申请书总结「事实与理由」部分。
+要求：第三人称称「申请人」「被申请人」；把对话、补充细节、材料里的事实合并去重，按时间顺序陈述；只使用记录里有的事实，不要补充任何记录里没有的事实、日期或数字；不要写任何金额；不要做法律定性，不要写法条；可以写明有哪些证据能证明哪件事；最后一段写「为维护申请人的合法权益，特依法申请仲裁，请求支持申请人的仲裁请求。」；400 字以内；只输出正文。
+案件记录：${JSON.stringify(record)}`;
     try {
       const r = await sample(prompt, { cache: false });
       const text = (r.text || '').trim();
-      // 代码校验：出现金额或事实里没有的日期，就不用模型稿，退回代码模板
-      return text && !W.checkReasons(text, st.facts, details).length ? text : fallback;
+      // 代码校验：出现金额或记录里没有的日期，就不用模型稿，退回代码模板
+      return text && !W.checkReasons(text, st.facts, record.user_words).length ? text : fallback;
     } catch (e) { return fallback; }
   }
-
-  // 质证环节当事人写下的补充细节
-  function rebuttalTexts(st) { return Object.values(st.rebuttals || {}).map(t => String(t || '').trim()).filter(Boolean); }
 
   function templateReasons(st, claims) {
     const f = st.facts, L = labelOf;
@@ -128,7 +125,7 @@ ${SLOT_SCHEMA}
     parts.push(`申请人于 ${f.start_date || '____'} 入职被申请人${f.company_name ? '（' + f.company_name + '）' : ''}，月工资约 ${f.monthly_wage ? E.yuan(f.monthly_wage) : '____'} 元。`);
     if (f.signed_contract) parts.push(`双方${f.signed_contract === 'yes' ? '签订了' : f.signed_contract === 'later' ? '于 ' + (f.contract_signed_date || '____') + ' 补签了' : '未签订'}书面劳动合同。`);
     if (f.separation === 'company_terminated') parts.push(`${f.end_date || '____'}，被申请人以${{ written: '书面', chat: '微信或短信', oral: '口头' }[f.termination_form] || '____'}方式通知申请人解除劳动关系，${f.termination_reason === 'none' ? '未说明任何理由' : '理由为' + (L('termination_reason', f.termination_reason) || '____')}。`);
-    for (const t of rebuttalTexts(st)) parts.push(/[。！？]$/.test(t) ? t : t + '。');
+    for (const t of (st.supplements || []).map(x => x.text)) parts.push('申请人补充：' + (/[。！？]$/.test(t) ? t : t + '。'));
     if (f.wages_owed === 'yes') parts.push(`被申请人尚欠申请人工资 ${f.wages_owed_amount ? E.yuan(f.wages_owed_amount) : '____'} 元未支付。`);
     parts.push('为维护申请人的合法权益，特依法申请仲裁，请求支持申请人的仲裁请求。');
     return parts.join('\n');
@@ -148,7 +145,7 @@ ${SLOT_SCHEMA}
 
   function blankCase() {
     return {
-      id: 'c' + Date.now(), updated: null, page: 'P1', facts: {}, manual: {}, uncertain: {}, pending: {}, rebuttals: {}, rebutted: [],
+      id: 'c' + Date.now(), updated: null, page: 'P1', facts: {}, manual: {}, uncertain: {}, pending: {}, supplements: [], evPurpose: {},
       chat: [{ role: 'ai', text: GREETING }], evidence: { labor_relation: [], wage: [], termination: [] }, selected: [], recognized: [], avgWage: null, minWage: null, regAvgWage: null, regMinWage: null,
       app: { applicant: { name: '', gender: '', id_no: '', address: '', phone: '' }, respondent: { name: '', address: '', legal_rep: '', credit_code: '' }, reasons: '', step: 1 },
     };
@@ -163,7 +160,7 @@ ${SLOT_SCHEMA}
   createApp({
     setup() {
       const st = reactive(blankCase());
-      const ui = reactive({ reply: '', busy: false, drawer: false, cases: loadCases(), tab: 'detail', missing: [], rebutResult: null, rebutPicked: null, rebutBefore: null, exportText: '', editing: false, toast: '' });
+      const ui = reactive({ reply: '', busy: false, drawer: false, cases: loadCases(), tab: 'detail', missing: [], supp: '', evBusy: false, exportText: '', editing: false, toast: '' });
 
       const allCities = G.PROVINCES.flatMap(p => p.cities.map(c => ({ city: c, province: p.province })));
       // 社平工资按「用人单位所在」城市取，最低工资同；年度取解除时的上年度（校准文档 L-04、4.1）
@@ -342,20 +339,23 @@ ${SLOT_SCHEMA}
         }
         r.busy = false;
       }
-      // 页面跳转由 flow.gates 决定，卡住时说明缺什么
-      // ---------- 质证：对方可能这样说，当事人回应、补充细节，再重新分析 ----------
-      // 回应的大白话照样走「模型抽事实 → 代码合并（计算参数待确认）→ 代码重算」，前后对比由代码给出
-      async function submitRebuttals() {
-        const todo = Object.entries(st.rebuttals).filter(([k, t]) => String(t || '').trim() && !st.rebutted.includes(k + '|' + t));
-        if (!todo.length && !ui.rebutPicked) { flash('先写一条回应，或点选上面的选项'); return; }
-        const { before, beforeIds } = ui.rebutBefore || snapshot();
-        ui.busy = true;
-        const changed = [];
-        for (const [k, t] of todo) {
-          const r = await extract(t, st.facts, null);
-          if (st.facts.city) delete r.facts.city;
-          changed.push(...merge(r.facts));
-          st.rebutted.push(k + '|' + t);
+      // ---------- 补正：报告之后，用户想到什么说什么（质证、补充细节、手上有什么证据） ----------
+      // 照样走「模型抽事实 → 代码合并（计算参数待确认）→ 代码重算」，前后变化由代码列出；提到的证据自动勾上
+      const record = computed(() => W.buildRecord({ ...st, chosen: chosen.value }));
+      async function supplement() {
+        const text = ui.supp.trim();
+        if (!text || ui.busy) return;
+        const before = Object.fromEntries(chosen.value.map(c => [c.id, { tier: c.tier, amount: c.calc && c.calc.amount }]));
+        const beforeIds = analysis.value.claims.map(c => c.id);
+        const options = evidenceGroups.value.flatMap(g => g.options);
+        ui.supp = ''; ui.busy = true;
+        const r = await extract(text, st.facts, null, options);
+        if (st.facts.city) delete r.facts.city;
+        const changed = merge(r.facts);
+        const ticked = [];
+        for (const tag of r.evidence || []) {
+          const g = evidenceGroups.value.find(g => g.options.includes(tag));
+          if (g && !st.evidence[g.group].includes(tag)) { st.evidence[g.group].push(tag); ticked.push(tag); }
         }
         ui.busy = false;
         const diffs = [];
@@ -368,18 +368,31 @@ ${SLOT_SCHEMA}
         }
         for (const id of Object.keys(before)) if (!now.some(c => c.id === id)) diffs.push(`${R.CLAIMS[id].title}：按补充的事实已不成立，已取消勾选`);
         st.selected = st.selected.filter(id => now.some(c => c.id === id));
-        ui.rebutResult = { recap: recapOf([...new Set([...changed, ...(ui.rebutPicked || [])])]), diffs };
-        ui.rebutPicked = null; ui.rebutBefore = null;
-      }
-      function snapshot() {
-        return { before: Object.fromEntries(chosen.value.map(c => [c.id, { tier: c.tier, amount: c.calc && c.calc.amount }])), beforeIds: analysis.value.claims.map(c => c.id) };
-      }
-      function rebutPick(slot, value) {
-        if (!ui.rebutBefore) ui.rebutBefore = snapshot();
-        editFact(slot, value);
-        ui.rebutPicked = [...new Set([...(ui.rebutPicked || []), slot])];
+        st.supplements.push({ text, at: new Date().toISOString(), recap: recapOf(changed), ticked, diffs });
+        st.evPurpose = {};   // 事实变了，证明内容要重新整理
       }
 
+      // 证据目录的「证明内容」：模型根据合并记录逐项总结，代码校验（不许有金额和记录外日期），不合格用通用说明
+      const evItems = computed(() => evidenceGroups.value.flatMap(g => st.evidence[g.group].map(tag => ({ tag, group: g, purpose: st.evPurpose[tag] || g.purpose }))));
+      async function organizeEvidence() {
+        const items = evItems.value;
+        if (!items.length) { flash('先勾选手上有的证据'); return; }
+        const sample = await samplePromise;
+        if (!sample) { flash('当前环境用不了模型，证明内容先用通用说明'); return; }
+        ui.evBusy = true;
+        try {
+          const r = await sample.json(`请为劳动仲裁证据目录逐项写「证明内容」：结合案件记录，说明每份证据能证明哪件具体的事，每项 40 字以内；只用记录里有的事实，不写金额，不做法律定性。
+证据：${items.map(i => i.tag).join('、')}
+案件记录：${JSON.stringify(record.value)}
+只输出 JSON：{"items": [{"name": "证据名称", "purpose": "证明内容"}]}`, { modelTier: 'quick' });
+          for (const it of (r && r.items) || []) {
+            if (items.some(i => i.tag === it.name) && it.purpose && !W.checkReasons(it.purpose, st.facts, record.value.user_words).length) st.evPurpose[it.name] = String(it.purpose).trim();
+          }
+        } catch (e) { flash('整理没有成功，先用通用说明'); }
+        ui.evBusy = false;
+      }
+
+      // 页面跳转由 flow.gates 决定，卡住时说明缺什么
       function go(p) {
         const g = gate.value[p];
         if (g && !g.open) { flash(g.why.join('；')); return; }
@@ -399,7 +412,7 @@ ${SLOT_SCHEMA}
         ui.missing = miss;
         return !miss.length;
       }
-      const reasonProblems = computed(() => W.checkReasons(st.app.reasons, st.facts, rebuttalTexts(st)));
+      const reasonProblems = computed(() => W.checkReasons(st.app.reasons, st.facts, record.value.user_words));
       const appFormat = computed(() => (std.value && std.value.application_format) || {});
       function appNext() {
         if (!validate(st.app.step)) return;
@@ -410,7 +423,7 @@ ${SLOT_SCHEMA}
       function exportApp() { if (validate(3)) save('劳动人事争议仲裁申请书.docx', applicationDoc()); }
       async function draft() {
         ui.busy = true;
-        st.app.reasons = await draftReasons(st, chosen.value);
+        st.app.reasons = await draftReasons(st, chosen.value, record.value);
         ui.busy = false;
       }
       watch(() => st.page, p => { if (p === 'P6' && !st.app.respondent.name && st.facts.company_name) st.app.respondent.name = st.facts.company_name; });
@@ -439,8 +452,8 @@ ${SLOT_SCHEMA}
         return zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
       }
       function evidenceDoc() {
-        const rows = [['序号', '证据名称', '证明目的', '页数']];
-        evidenceGroups.value.filter(g => st.evidence[g.group].length).forEach((g, i) => rows.push([String(i + 1), st.evidence[g.group].join('、'), g.purpose, '']));
+        const rows = [['序号', '证据名称', '证明内容', '页数']];
+        evItems.value.forEach((it, i) => rows.push([String(i + 1), it.tag, it.purpose, '']));
         return [{ text: '证据目录', bold: true, size: 36, align: 'center' }, { table: rows }, { text: '' }, { label: '提交人：', text: st.app.applicant.name }, { text: today() }];
       }
       function applicationDoc() {
@@ -478,7 +491,7 @@ ${SLOT_SCHEMA}
       const pct = k => totals.value.total ? (totals.value[k] / totals.value.total * 100) + '%' : '0%';
 
       return { st, ui, R, E, F, G, PAGES, model, allCities, std, stdCity, stdOrigin, imgCaps, files, upload, kindOfTag: D.kindOfTag, analysis, chosen, conflicts, totals, next, prog, factRows, evidenceGroups, arbitration,
-        answer, pick, notSure, editFact, toAnalysis, pendingKeys, confirmParams, gate, submitRebuttals, rebutPick, reasonProblems, appFormat, W, toggleClaim, toggleEvidence, go, newCase, openCase, appNext, exportApp, draft, requestLines,
+        answer, pick, notSure, editFact, toAnalysis, pendingKeys, confirmParams, gate, supplement, organizeEvidence, evItems, reasonProblems, appFormat, W, toggleClaim, toggleEvidence, go, newCase, openCase, appNext, exportApp, draft, requestLines,
         save, evidenceDoc, applicationDoc, examples, useExample, fillSample, tierClass, statusClass, pct, display, labelOf, today };
     },
   }).mount('#app');

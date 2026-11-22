@@ -60,3 +60,24 @@ test('当事人自己补充的细节里出现的日期，可以出现在事实�
   assert.ok(W.checkReasons('2025年6月3日经理在微信里通知申请人。', facts).length);
   assert.deepStrictEqual(W.checkReasons('2025年6月3日经理在微信里通知申请人。', facts, ['6月份那次是2025年6月3日经理发微信说的']), []);
 });
+
+test('合并记录：包含对话、补充细节、材料和证据，不含金额和待确认参数', () => {
+  const rec = W.buildRecord({
+    facts: { start_date: '2022-03-01', end_date: '2025-07-15', monthly_wage: 9000, company_name: '某公司' },
+    pending: { end_date: true },
+    chat: [{ role: 'ai', text: '你好' }, { role: 'user', text: '我被辞退了' }, { role: 'ai', text: '欠了多少？', type: 'number' }, { role: 'user', text: '9000' }],
+    supplements: [{ text: '经理在微信里说明天别来了' }],
+    recognized: [{ tag: '劳动合同', filled: ['公司名称'], note: '' }],
+    evidence: { termination: ['辞退聊天记录'], wage: [] },
+    chosen: [{ title: '违法解除劳动合同赔偿金', tier: '需补证', disputes: [], calc: { amount: 54000 } }],
+  });
+  assert.deepStrictEqual(rec.confirmed_facts, { start_date: '2022-03-01', company_name: '某公司' });
+  assert.deepStrictEqual(rec.user_words, ['我被辞退了', '经理在微信里说明天别来了']);
+  assert.deepStrictEqual(rec.evidence, ['辞退聊天记录']);
+  assert.ok(!JSON.stringify(rec).includes('54000'));
+});
+
+test('用户原话里的金额不交给模型，日期保留', () => {
+  assert.strictEqual(W.redactMoney('在苏州做了3年，月薪9000，还欠了两万块'), '在苏州做了3年，月薪[金额略]，还欠[金额略]');
+  assert.strictEqual(W.redactMoney('2026年10月1日被辞退，工资8,500元'), '2026年10月1日被辞退，工资[金额略]');
+});

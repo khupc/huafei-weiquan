@@ -338,31 +338,16 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
           <p class="sub">建议申请的仲裁委：{{ arbitration }}（劳动合同履行地；也可以去公司所在地）。劳动仲裁不收费。</p>
         </template>
       </section>
-      <!-- 质证：对方可能这样说，当事人回应、补充细节后重新分析 -->
-      <section class="card stack" id="rebuttal">
-        <h2>对方可能会这样说，你怎么看？</h2>
-        <p class="sub">看到这些，你可能会想起更多细节。逐条回应或补充都行，写完点「重新分析」，结论和金额会按新的事实重算。可以跳过。</p>
+      <!-- 对方可能怎么说：只做提示，回应和补充统一放到证据页的补正对话里，想到啥说啥 -->
+      <section class="card stack">
+        <h2>对方可能会这样说</h2>
         <div v-for="c in chosen" :key="c.id" class="stack">
           <h3 v-if="c.defenses.length">{{ c.title }}</h3>
-          <div v-for="(d, i) in c.defenses" :key="i" class="calc-line stack">
-            <b>对方可能说：「{{ d.says }}」</b>
-            <span class="formula">你可以准备：{{ d.prepare }}</span>
-            <div v-if="d.slot && F.SLOTS[d.slot]" class="row">
-              <span class="sub">{{ F.SLOTS[d.slot].label }}：</span>
-              <button v-for="o in F.SLOTS[d.slot].options" :key="o.value" class="chip" :class="{on: st.facts[d.slot] === o.value}" @click="rebutPick(d.slot, o.value)">{{ o.label }}</button>
-            </div>
-            <textarea :id="'rb-' + c.id + '-' + i" v-model="st.rebuttals[c.id + '|' + i]" rows="2" placeholder="你的回应或补充的细节，例如：经理在微信里说明天别来了，我还有截图"></textarea>
-          </div>
+          <div v-for="(d, i) in c.defenses" :key="i" class="calc-line"><b>「{{ d.says }}」</b><span class="formula">你可以准备：{{ d.prepare }}</span></div>
         </div>
-        <button id="rebut-submit" class="btn" :disabled="ui.busy" @click="submitRebuttals">{{ ui.busy ? '正在分析…' : '重新分析' }}</button>
-        <div v-if="ui.rebutResult" class="stack">
-          <p v-if="ui.rebutResult.recap" class="sub">记下了：{{ ui.rebutResult.recap }}。</p>
-          <p v-if="!ui.rebutResult.diffs.length" class="sub">按补充的内容重新分析，结论没有变化；你写的细节会用在申请书的事实与理由里。</p>
-          <div v-for="d in ui.rebutResult.diffs" class="warn">{{ d }}</div>
-          <div v-if="pendingKeys.length" class="warn">有新读到的参数要先确认才能重算金额。<button class="btn plain" @click="go('P3')">去确认</button></div>
-        </div>
+        <p class="sub">看到这些想起什么，不用一条条对应，下一步在证据页直接说就行，我会重新分析。</p>
       </section>
-      <button class="btn block" @click="go('P5')">整理证据</button>
+      <button class="btn block" @click="go('P5')">补正证据和细节</button>
     </template>
 
     <!-- P5 证据清单 -->
@@ -370,6 +355,25 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
       <section class="card">
         <h2>证据清单</h2>
         <p class="sub">只列和你选的请求有关的证据。点一下就勾上，并可以上传照片：{{ imgCaps.ok ? '我会读出上面的信息，自动记下，写申请书时不用再填。' : '当前环境不能识别图片，照片只做附件。' }}勾选会更新报告里的分档。</p>
+      </section>
+      <!-- 补正对话：想到啥说啥 -->
+      <section class="card stack" id="supplement">
+        <h2>还有什么想补充的？</h2>
+        <p class="sub">看了报告和对方可能的说法，想到什么直接说：当时的经过、对方说过的话、手上还有什么证据，都可以。不用一条条对应，我会读出新的事实、勾上你提到的证据，再重新分析。</p>
+        <div v-for="(m, i) in st.supplements" :key="i" class="stack">
+          <div class="msg user">{{ m.text }}</div>
+          <div class="msg ai">
+            <template v-if="m.recap">记下了：{{ m.recap }}。</template>
+            <template v-if="m.ticked.length">已勾上证据：{{ m.ticked.join('、') }}。</template>
+            <template v-for="d in m.diffs"> {{ d }}。</template>
+            <template v-if="!m.recap && !m.ticked.length && !m.diffs.length">好的，记下了，写申请书时会用上。</template>
+          </div>
+        </div>
+        <div v-if="pendingKeys.length" class="warn">有新读到的参数要先确认才能重算金额。<button class="btn plain" @click="go('P3')">去确认</button></div>
+        <div class="row">
+          <textarea id="supp" class="grow" rows="2" v-model="ui.supp" placeholder="例如：经理是在微信上说的明天别来了，我有截图，后来人事还打电话让我签离职申请，我没签"></textarea>
+          <button id="supp-send" class="btn" :disabled="ui.busy || !ui.supp.trim()" @click="supplement">{{ ui.busy ? '分析中…' : '发送' }}</button>
+        </div>
       </section>
       <section v-if="st.recognized.length" class="card stack">
         <h3>从你的材料里读到</h3>
@@ -390,6 +394,10 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
       </section>
       <section class="card stack">
         <div v-for="c in chosen" :key="c.id" class="el"><span>{{ c.title }}</span><span class="tier" :class="tierClass(c.tier)">{{ c.tier }}</span></div>
+        <h3>证据目录</h3>
+        <p v-if="!evItems.length" class="sub">还没有勾选证据。</p>
+        <div v-for="(it, i) in evItems" :key="it.tag" class="calc-line"><b>{{ i + 1 }}. {{ it.tag }}</b><span class="formula">证明内容：{{ it.purpose }}</span></div>
+        <button v-if="evItems.length" id="ev-organize" class="btn plain" :disabled="ui.evBusy" @click="organizeEvidence">{{ ui.evBusy ? '正在整理…' : '结合对话和补充的细节，整理证明内容' }}</button>
         <p class="sub">申请时一般交复印件，开庭带原件。{{ R.EVIDENCE_TIP }}</p>
         <button class="btn ghost block" @click="save('证据目录.docx', evidenceDoc())">导出证据目录（Word）</button>
       </section>
@@ -426,7 +434,7 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
         <template v-if="st.app.step === 3">
           <textarea id="reasons" v-model="st.app.reasons" style="min-height:220px"></textarea>
           <div v-for="p in reasonProblems" class="warn">请核对：{{ p }}。金额只写在「仲裁请求」里，事实与理由里的日期应和事实摘要一致。</div>
-          <div class="row"><span class="sub grow">{{ ui.busy ? '正在起草…' : 'AI 只根据你确认过的事实润色，不写金额，请逐段核对修改。' }}</span><button class="btn plain" :disabled="ui.busy" @click="draft">重新起草</button></div>
+          <div class="row"><span class="sub grow">{{ ui.busy ? '正在起草…' : '由 AI 把对话、补充的细节、材料和证据合并总结，不写金额，请逐段核对修改。' }}</span><button class="btn plain" :disabled="ui.busy" @click="draft">重新起草</button></div>
         </template>
         <div v-if="ui.missing.length" class="danger">请补充：{{ ui.missing.join('、') }}</div>
         <div class="row">
