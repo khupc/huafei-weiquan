@@ -37,3 +37,12 @@ test('时间线：受理 5 个工作日、裁决 45 日、终局与非终局的�
   assert.strictEqual(t2.find(e => e.key === 'accept').date, '2026-11-30');
   assert.match(P.ics(t, '案件'), /DTSTART;VALUE=DATE:20270111/);
 });
+
+test('北京区级仲裁窗口：已核 11 区有地址电话，未核的为空', () => {
+  const G = require('../rules/regions.js');
+  const f = G.standardsFor('北京', '2026-10-01').application_format;
+  assert.strictEqual(f.districts['朝阳'].phone, '010-87983310');
+  assert.strictEqual(f.districts['大兴'], null);
+  assert.strictEqual(Object.values(f.districts).filter(Boolean).length, 11);
+  assert.strictEqual(f.online, null);
+});

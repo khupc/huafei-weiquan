@@ -184,7 +184,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       id: 'c' + Date.now(), updated: null, page: 'P1', facts: {}, manual: {}, uncertain: {}, pending: {}, supplements: [], evPurpose: {}, sources: {}, autoTicked: [], asks: [], archive: [], confirmed: false, userClaims: {},
       chat: [{ role: 'ai', text: GREETING }], evidence: { labor_relation: [], wage: [], termination: [] }, selected: [], recognized: [], avgWage: null, minWage: null, regAvgWage: null, regMinWage: null,
       app: { applicant: { name: '', gender: '', id_no: '', address: '', phone: '', service_address: '', email: '' }, respondent: { name: '', address: '', legal_rep: '', credit_code: '' }, reasons: '', step: 1,
-        agent: { on: false, type: 'general', name: '', id_no: '', phone: '', relation: '' } },
+        agent: { on: false, type: 'general', name: '', id_no: '', phone: '', relation: '', term: '至本案仲裁程序终结' } },
       checked: {}, submission: { submitted: '', receiptNo: '', accepted: '', evidenceDeadline: '', hearing: '', awardReceived: '', finalAward: false },
     };
   }
@@ -230,7 +230,24 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
         const groups = new Set(chosen.value.flatMap(c => R.CLAIMS[c.id].key_evidence));
         return R.EVIDENCE.filter(g => groups.has(g.group));
       });
-      const arbitration = computed(() => st.facts.city ? `${st.facts.city}${/市|州|盟|地区|林区$/.test(st.facts.city) ? '' : '市'}劳动人事争议仲裁委员会` : '');
+      // 有区级数据的城市（目前是北京）按工作地所在区推荐仲裁委
+      const districtName = d => d === '经开区' ? '北京经济技术开发区劳动人事争议仲裁委员会' : `${st.facts.city}市${d}区劳动人事争议仲裁委员会`;
+      const arbitration = computed(() => {
+        if (!st.facts.city) return '';
+        const ds = (std.value && std.value.application_format || {}).districts;
+        if (ds && st.facts.district && st.facts.district in ds) return districtName(st.facts.district);
+        return `${st.facts.city}${/市|州|盟|地区|林区$/.test(st.facts.city) ? '' : '市'}劳动人事争议仲裁委员会`;
+      });
+      const institution = computed(() => { const f = std.value && std.value.application_format || {}; return f.districts && st.facts.district ? f.districts[st.facts.district] : f.institution; });
+      // 区县：从对话或公司住所里认出来（工作地优先，用户可在提交指引页改）
+      watch(() => [st.facts.city, st.app.respondent.address, st.chat.length], () => {
+        const ds = (std.value && std.value.application_format || {}).districts;
+        if (!ds || st.facts.district) return;
+        const find = text => Object.keys(ds).find(d => d === '经开区' ? /经开区|亦庄|经济技术开发区/.test(text) : text.includes(d + '区'));
+        const said = find(st.chat.filter(m => m.role === 'user').map(m => m.text).join(' '));
+        const addr = find(st.app.respondent.address || '');
+        if (said || addr) { st.facts.district = said || addr; st.sources.district = said ? '你在对话里说的' : '公司住所（如果工作地在别的区，请改）'; }
+      });
 
       function persist() {
         st.updated = new Date().toISOString();
@@ -674,13 +691,17 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       }
       function powerOfAttorneyDoc() {
         const a = st.app.applicant, g = st.app.agent;
-        const scope = g.type === 'special' ? '特别授权：代为提出、承认、放弃、变更仲裁请求，进行调解、和解，代为陈述、举证、质证、辩论，代为签收法律文书。' : '一般代理：代为提出仲裁申请，参加仲裁活动，代为陈述、举证、质证、辩论，代为签收法律文书。';
+        // 权限措辞按律师线程（呼伦贝尔官方模板与仲裁实务）；不写「提起诉讼」，起诉另行委托
+        const general = '代为参加仲裁活动，代为提交、签收仲裁文书，陈述事实，提交证据，质证，辩论';
+        const scope = g.type === 'special' ? `特别授权：${general}；并代为承认、放弃、变更、增加仲裁请求，代为进行和解、调解，代为签收调解书、裁决书。` : `一般代理：${general}。`;
         return [
           { text: '授权委托书', bold: true, size: 36, align: 'center' },
           { label: '委托人：', text: `${a.name}，身份证号 ${a.id_no}，电话 ${a.phone}` },
           { label: '受托人：', text: `${g.name}，身份证号 ${g.id_no}，电话 ${g.phone}，与委托人关系：${g.relation}` },
           { text: `现委托上列受托人在申请人${a.name}与被申请人${st.app.respondent.name}劳动争议一案中，作为本人的代理人。` },
           { label: '代理权限：', text: scope },
+          { label: '委托期限：', text: g.term || '至本案仲裁程序终结' },
+          { text: '注：委托代理人代为承认、放弃、变更仲裁请求，进行调解、和解，必须有委托人的特别授权。' },
           { text: '委托人（签名）：____________', align: 'right' }, { text: '____年____月____日', align: 'right' },
         ];
       }
@@ -721,7 +742,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       const pct = k => totals.value.total ? (totals.value[k] / totals.value.total * 100) + '%' : '0%';
 
       return { st, ui, R, E, F, G, PAGES, model, allCities, std, stdCity, stdOrigin, imgCaps, files, upload, kindOfTag: D.kindOfTag, analysis, chosen, conflicts, totals, next, prog, factRows, evidenceGroups, arbitration,
-        answer, pick, notSure, editFact, toAnalysis, pendingKeys, confirmParams, gate, supplement, organizeEvidence, evItems, src, resolveAsk, confirmRec, guideQs, fillHint, partyMissing, partyDone, claimCheck, uploadInChat, eligible, copyCount, materialList, checkItems, events, limitNear, uploadReceipt, saveIcs, serviceAddressDoc, powerOfAttorneyDoc, printListDoc, printPackage, hasRecording, reasonProblems, appFormat, W, toggleClaim, toggleEvidence, go, newCase, openCase, appNext, exportApp, draft, requestLines,
+        answer, pick, notSure, editFact, toAnalysis, pendingKeys, confirmParams, gate, supplement, organizeEvidence, evItems, src, resolveAsk, confirmRec, guideQs, fillHint, partyMissing, partyDone, claimCheck, uploadInChat, eligible, institution, copyCount, materialList, checkItems, events, limitNear, uploadReceipt, saveIcs, serviceAddressDoc, powerOfAttorneyDoc, printListDoc, printPackage, hasRecording, reasonProblems, appFormat, W, toggleClaim, toggleEvidence, go, newCase, openCase, appNext, exportApp, draft, requestLines,
         save, evidenceDoc, applicationDoc, examples, useExample, fillSample, tierClass, statusClass, pct, display, labelOf, today };
     },
   }).mount('#app');
