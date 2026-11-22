@@ -541,7 +541,7 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
       <!-- 推荐线上的地区：平台填写对照表（按平台步骤顺序，每项可复制） -->
       <section v-if="appFormat.online && appFormat.online.recommend" class="card stack" id="platform">
         <h2>推荐线上提交</h2>
-        <p class="sub">{{ appFormat.online.entry }}。现场和邮寄见下方，作为备选。</p>
+        <p class="sub"><a v-if="appFormat.online.url" :href="appFormat.online.url" target="_blank" rel="noopener">{{ appFormat.online.url }}</a><br v-if="appFormat.online.url">{{ appFormat.online.entry }}。现场和邮寄见下方，作为备选。</p>
         <div class="warn">开始前确认：{{ appFormat.online.conditions.join('；') }}。</div>
         <div v-if="appFormat.online.jurisdiction_evidence" class="warn">{{ appFormat.online.jurisdiction_evidence }}</div>
         <p class="sub">下面按平台的顺序排好，照着一项项填，点「复制」再粘贴到平台对应的框里。</p>

@@ -72,7 +72,8 @@
     jurisdiction: '默认去工作地所在区的仲裁委（公司所在地的区也可以）。市仲裁委只管特定案件，如通州注册资本 1000 万美元以上的外资企业、市属事业单位人事争议（京人社仲发〔2022〕5号）。',
     mail: '各区办事指南都标了支持物流快递，寄之前先打电话确认收件地址。',
     // 北京市劳动人事争议调解仲裁网上服务平台（律师线程校准文档 7.7，依据官方操作手册；网址待核）
-    online: { name: '北京市劳动人事争议调解仲裁网上服务平台', url: null, entry: '通过京通登录「北京市劳动人事争议调解仲裁网上服务平台」（网址待核）', review: '依据官方操作手册',
+    online: { name: '北京市劳动人事争议调解仲裁网上服务平台', url: 'https://fuwu.rsj.beijing.gov.cn/zhrs/api4/arbitration/html/home/index',
+      entry: '用京通登录「北京市劳动人事争议调解仲裁网上服务平台」，也可以从北京市人社局官网「热点服务 → 劳动人事争议调解仲裁」进入；咨询电话 010-12333', review: '依据官方操作手册及人社部中国就业网、央广网报道（2023-11-27 启用）',
       recommend: true,
       conditions: ['只能用电脑操作，手机浏览器不适配', '需要京通账号', '签名要用手机扫码'],
       upload: { types: 'jpg、png、jpeg、pdf，或 avi、wav、mp3、mp4', maxMB: 20, sameType: true, page: '1 张图或 1 个音视频算 1 页', nameMax: 30, recordingText: true },
