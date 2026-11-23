@@ -51,7 +51,7 @@
   //   monthly_workdays:   不满一个月折算用的月计薪天数 D，默认 21.75（不是全国法定规则，按地区参数存）
   // 没有数据的一律为空或「有争议」，页面提示「该地标准待补，可自行填写」。
   // application_format：申请书格式与份数。法定栏目全国统一（调解仲裁法第 28 条），格式、份数、是否线上立案各地不同，按地区填
-  const POLICY_FIELDS = ['overtime_in_base', 'bonus_allocation', 'double_wage_limitation', 'monthly_workdays', 'application_format', 'local_notes'];
+  const POLICY_FIELDS = ['overtime_in_base', 'bonus_allocation', 'double_wage_limitation', 'monthly_workdays', 'application_format', 'local_notes', 'unclear_separation'];
   // 份数默认：申请书、证据清单、证据复印件各「被申请人数 + 2」份交仲裁委，自留 1 份（呼伦贝尔样本，待核）
   // institution：区县级仲裁院名称、窗口地址、邮寄地址、电话、办事指南（各地人社局官网，待逐地录入）
   // online：线上申请入口；全国没有统一入口，已核实的只有重庆
@@ -156,12 +156,14 @@
       online_note: '全省可以在江苏省人社厅网站网上立案：「我要办」→「更多」→「劳动关系」→「劳动人事争议调解仲裁」→「劳动人事争议仲裁申请」，填写资料并上传证据（南京人社 2026-06-18）。之后要不要再交纸质材料还没核实。',
     } });
   setProv('四川省', {
-    double_wage_limitation: '逐月',  // 川高法民一〔2016〕1号第31条，转载待核
-    overtime_in_base: '否',          // 同上第29条，转载待核
-    local_notes: { double_wage: '川高法民一〔2016〕1号第29、31条：月工资不含加班费和非常规奖金；二倍工资时效逐月倒推一年' + PENDING,
-      economic_compensation: '川高法民一〔2016〕1号第29条：经济补偿基数不含加班费和非常规奖金、津补贴' + PENDING,
-      illegal_termination: '川高法民一〔2016〕1号第29条：赔偿金基数不含加班费和非常规奖金、津补贴' + PENDING,
-      defenses: { '合同签过了': '川高法民一〔2016〕1号第20条：应聘登记表、聘用通知书等写明了期限和报酬并已按此履行的，视为已签合同' + PENDING } },
+    // 川高法民一〔2016〕1号：cheryl 提供全文，律师线程 2026-11-23 核对一致（校准文档 7.13）
+    double_wage_limitation: '逐月',  // 第31条
+    overtime_in_base: '否',          // 第29条
+    unclear_separation: 'N',         // 第26条第二款：双方都证明不了离职原因的，视为单位提出、协商一致解除
+    local_notes: { double_wage: '川高法民一〔2016〕1号第29、31条：月工资不含加班费和非常规奖金；二倍工资时效逐月倒推一年',
+      economic_compensation: '川高法民一〔2016〕1号第29条：经济补偿基数不含加班费和非常规奖金、津补贴',
+      illegal_termination: '川高法民一〔2016〕1号：基数不含加班费和非常规奖金、津补贴（第29条）；调岗、调地点没有合理理由，你拒绝后被解除的，算违法解除（第22条）；以「末位淘汰」「竞争上岗」为由解除的，也算违法解除（第24条）',
+      defenses: { '合同签过了': '川高法民一〔2016〕1号第20条：应聘登记表、聘用通知书等写明了期限和报酬并已按此履行的，视为已签合同' } },
     application_format: { ...DEFAULT_APP_FORMAT,
       copy_rule: { plus: 1, keep: 1, source: '沿用北京口径，待核' },
     } });

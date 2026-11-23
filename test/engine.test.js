@@ -286,3 +286,10 @@ test('地区表：浙江/重庆整体、四川逐月且不含加班费，其余�
   assert.strictEqual(G.standardsFor('南京', '2026-10-01').application_format.triage.yes.name, '南京市劳动人事争议仲裁院');
   assert.strictEqual(G.standardsFor('广州', '2026-10-01').double_wage_limitation, '有争议');
 });
+
+test('四川：离职原因证明不了时，违法解除保守值是 N', () => {
+  const f = { start_date: '2023-06-01', end_date: '2026-10-01', monthly_wage: 9000 };
+  const r = E.illegalTermination(f, G.standardsFor('成都', '2026-10-01'));
+  assert.strictEqual(r.conservative, r.amount / 2);
+  assert.strictEqual(E.illegalTermination(f, G.standardsFor('杭州', '2026-10-01')).conservative, undefined);
+});

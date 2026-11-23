@@ -110,6 +110,11 @@
       out.conservative = round2(cc.amount * k);
       out.conservativeNote = `不含加班费：${yuan(cc.base)} 元/月 × ${cc.n} × ${k}`;
     }
+    // 地区口径：双方都证明不了离职原因时视为单位提出、协商一致解除（如四川第26条第二款），最差也有经济补偿 N
+    if (std && std.unclear_separation === 'N' && out.conservative == null) {
+      out.conservative = c.amount;
+      out.conservativeNote = '如果双方都证明不了离职原因，当地视为单位提出、协商一致解除，至少可以拿经济补偿 N（不是 0）';
+    }
     return out;
   }
 
