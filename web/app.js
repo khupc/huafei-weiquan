@@ -232,24 +232,29 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
         return R.EVIDENCE.filter(g => groups.has(g.group));
       });
       // 有区级数据的城市（目前是北京）按工作地所在区推荐仲裁委
-      const districtName = d => d === '经开区' ? '北京经济技术开发区劳动人事争议仲裁委员会' : `${st.facts.city}市${d}区劳动人事争议仲裁委员会`;
+      const districtName = d => d === '经开区' ? '北京经济技术开发区劳动人事争议仲裁委员会' : `${st.facts.city}市${d}${d.endsWith('区') ? '' : '区'}劳动人事争议仲裁委员会`;
+      // 分流题是否适用：有的城市只对部分区问（广州、深圳），其余区一律归区
+      const triageOn = computed(() => {
+        const t = (std.value && std.value.application_format || {}).triage;
+        return !!t && (!t.districts || t.districts.includes(st.facts.district));
+      });
       const arbitration = computed(() => {
         if (!st.facts.city) return '';
         const fmt = std.value && std.value.application_format || {}, ds = fmt.districts;
-        if (fmt.triage && st.facts.city_level === 'yes') return fmt.triage.yes.name;
+        if (triageOn.value && st.facts.city_level === 'yes') return fmt.triage.yes.name;
         if (ds && st.facts.district && st.facts.district in ds) return districtName(st.facts.district);
         return `${st.facts.city}${/市|州|盟|地区|林区$/.test(st.facts.city) ? '' : '市'}劳动人事争议仲裁委员会`;
       });
       const institution = computed(() => {
         const f = std.value && std.value.application_format || {};
-        if (f.triage && st.facts.city_level === 'yes') return f.triage.yes;
+        if (triageOn.value && st.facts.city_level === 'yes') return f.triage.yes;
         return f.districts && st.facts.district ? f.districts[st.facts.district] : f.institution;
       });
       // 区县：从对话或公司住所里认出来（工作地优先，用户可在提交指引页改）
       watch(() => [st.facts.city, st.app.respondent.address, st.chat.length], () => {
         const ds = (std.value && std.value.application_format || {}).districts;
         if (!ds || st.facts.district) return;
-        const find = text => Object.keys(ds).find(d => d === '经开区' ? /经开区|亦庄|经济技术开发区/.test(text) : text.includes(d + '区'));
+        const find = text => Object.keys(ds).find(d => d === '经开区' ? /经开区|亦庄|经济技术开发区/.test(text) : text.includes(d.endsWith('区') ? d : d + '区'));
         const said = find(st.chat.filter(m => m.role === 'user').map(m => m.text).join(' '));
         const addr = find(st.app.respondent.address || '');
         if (said || addr) { st.facts.district = said || addr; st.sources.district = said ? '你在对话里说的' : '公司住所（如果工作地在别的区，请改）'; }
@@ -803,7 +808,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       const pct = k => totals.value.total ? (totals.value[k] / totals.value.total * 100) + '%' : '0%';
 
       return { st, ui, R, E, F, G, PAGES, model, allCities, std, stdCity, stdOrigin, imgCaps, files, upload, kindOfTag: D.kindOfTag, analysis, chosen, conflicts, totals, next, prog, factRows, evidenceGroups, arbitration,
-        answer, pick, notSure, editFact, toAnalysis, pendingKeys, confirmParams, gate, supplement, organizeEvidence, evItems, src, resolveAsk, confirmRec, guideQs, fillHint, suggestMiss, partyMissing, partyDone, claimCheck, uploadInChat, eligible, institution, platformSteps, copyText, saveEvidenceZip, copyCount, materialList, checkItems, events, limitNear, mailRisky, uploadReceipt, saveIcs, serviceAddressDoc, powerOfAttorneyDoc, printListDoc, printPackage, hasRecording, reasonProblems, appFormat, W, toggleClaim, toggleEvidence, go, newCase, openCase, appNext, exportApp, draft, requestLines,
+        answer, pick, notSure, editFact, toAnalysis, pendingKeys, confirmParams, gate, supplement, organizeEvidence, evItems, src, resolveAsk, confirmRec, guideQs, fillHint, suggestMiss, partyMissing, partyDone, claimCheck, uploadInChat, eligible, institution, platformSteps, copyText, saveEvidenceZip, copyCount, materialList, checkItems, events, limitNear, mailRisky, triageOn, uploadReceipt, saveIcs, serviceAddressDoc, powerOfAttorneyDoc, printListDoc, printPackage, hasRecording, reasonProblems, appFormat, W, toggleClaim, toggleEvidence, go, newCase, openCase, appNext, exportApp, draft, requestLines,
         save, evidenceDoc, applicationDoc, examples, useExample, fillSample, tierClass, statusClass, pct, display, labelOf, today };
     },
   }).mount('#app');

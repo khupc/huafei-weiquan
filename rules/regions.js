@@ -51,7 +51,7 @@
   //   monthly_workdays:   不满一个月折算用的月计薪天数 D，默认 21.75（不是全国法定规则，按地区参数存）
   // 没有数据的一律为空或「有争议」，页面提示「该地标准待补，可自行填写」。
   // application_format：申请书格式与份数。法定栏目全国统一（调解仲裁法第 28 条），格式、份数、是否线上立案各地不同，按地区填
-  const POLICY_FIELDS = ['overtime_in_base', 'bonus_allocation', 'double_wage_limitation', 'monthly_workdays', 'application_format'];
+  const POLICY_FIELDS = ['overtime_in_base', 'bonus_allocation', 'double_wage_limitation', 'monthly_workdays', 'application_format', 'local_notes'];
   // 份数默认：申请书、证据清单、证据复印件各「被申请人数 + 2」份交仲裁委，自留 1 份（呼伦贝尔样本，待核）
   // institution：区县级仲裁院名称、窗口地址、邮寄地址、电话、办事指南（各地人社局官网，待逐地录入）
   // online：线上申请入口；全国没有统一入口，已核实的只有重庆
@@ -129,8 +129,46 @@
     },
   };
 
+  // 广东（律师线程校准文档 7.10，核对日期 2026-11-23）：全省管辖依据广东省劳动人事争议处理办法第三十八条；金额公式与全国一致
+  const GD_FORMAT = { ...DEFAULT_APP_FORMAT,
+    copy_rule: { plus: 1, keep: 1, source: '申请书份数沿用北京口径，待核；证据按仲裁庭和对方人数交副本' },
+    jurisdiction: '由劳动合同履行地（实际工作地）或单位所在地的仲裁机构管辖，两地都申请的由履行地管辖；层级不明确的由区县仲裁委管辖（广东省劳动人事争议处理办法第三十八条）。',
+    pre_mediation: '材料齐了，窗口会建议先调解，可以拒绝，拒绝不影响立案：拒绝后 5 日内出受理通知；同意调解的，15 日内调不成再受理（广东省劳动人事争议处理办法第五十条）。',
+    online_note: '全省可以用粤省事微信小程序「劳动人事争议调解仲裁」申请。',
+  };
+  if (PROVINCE_DEFAULTS['广东省']) PROVINCE_DEFAULTS['广东省'].application_format = GD_FORMAT;
+  const GZ = (address, phone) => ({ address, phone, hours: null, source: '广州市人社局官方页面（2025-01-14）', checked: '2026-11-23' });
+
   // 市级覆盖：只写和省级默认不同的字段，例如 { '深圳': { avg_wage: { 2025: { value: 12345, scope: '职工平均' } } } }
-  const CITY_OVERRIDES = {};
+  const CITY_OVERRIDES = {
+    广州: { application_format: { ...GD_FORMAT,
+      jurisdiction: GD_FORMAT.jurisdiction + '在省里登记、注册资本 2 亿元以上的企业归广东省劳动人事争议调解仲裁院（越秀区教育路88号，020-83352251）。',
+      triage: { question: '单位是不是在市里登记、注册资金 3000 万元以上、外地企业，或者市属事业单位？',
+        districts: ['越秀', '海珠', '荔湾', '天河', '白云', '花都', '番禺'],
+        yes: { name: '广州市劳动人事争议仲裁院', ...GZ('天河区龙口西路穗园东街21号之一（智能立案大厅）、之二（人工立案大厅）', '020-22044515') } },
+      triage_skip_note: '工作地在黄埔、南沙、增城、从化的，不管单位规模都归该区仲裁委。',
+      online: { name: '广州劳动人事争议网上平台（网上预受理）', url: 'http://gzlss.rsj.gz.gov.cn/cas/login' },
+      online_note: '也可以用粤省事。网上申请只是预受理，通过后要把纸质材料邮寄给仲裁机构才算完成受理。',
+      mail: '在广州，邮寄是正式路线：网上预受理通过后，把纸质材料寄到仲裁机构才算完成受理。',
+      mail_formal: true,
+      districts: {
+        越秀: GZ('惠福东路龙藏街15号', '020-83392529'), 海珠: GZ('宝岗路茶亭前5号之七二楼', '020-84232762'),
+        荔湾: GZ('芳村大道中688号二楼（万盛苑二期7栋二楼）', '020-81376040'), 天河: GZ('石牌东路117号一楼窗口', '020-87580766'),
+        白云: GZ('齐富路88号B栋3楼', '020-32580640'), 花都: GZ('新华街公园前路46号', '020-86969336'),
+        番禺: GZ('市桥平康路48号2号楼2楼', '020-84692915'), 从化: GZ('河滨南路43号2楼仲裁办', '020-87973309'),
+        增城: GZ('荔城街挂绿路14号东楼', '020-82738511'), 黄埔: GZ('水西路12号A栋社会治理中心大厅', '020-82116348'),
+        南沙: GZ('初晴路19号晶荟广场1号楼2层（各街镇另设收件点）', '020-39911782'),
+      } } },
+    深圳: { application_format: { ...GD_FORMAT,
+      hotline: '0755-12333',
+      triage: { question: '单位认缴注册资本是不是 1000 万元以上，或者是市属、中央或省驻深单位？',
+        districts: ['福田', '罗湖', '南山', '盐田'],
+        yes: { name: '深圳市劳动人事争议仲裁委员会', address: '福田区深南大道8005号深圳人才园', phone: null, hours: null, pending: true, source: '律师线程校准文档 7.10（2019、2023 年名录一致，电话不一致）', checked: '2026-11-23' } },
+      triage_skip_note: '工作地或单位注册地在宝安、龙岗、龙华、坪山、光明、大鹏、深汕的，不管单位规模都归该区仲裁委。',
+      online_note: '电脑上在深圳市人社局官网首页「劳动关系 → 劳动人事仲裁 → 深圳市劳动争议调援裁诉服务平台」，手机上在「深圳人社」公众号「办事 > 劳动争议处理」。平台可以预约递交、邮寄递交、网上递交，提交后仍要按要求递交纸质材料。',
+      districts: Object.fromEntries(['福田', '罗湖', '南山', '盐田', '宝安', '龙岗', '龙华', '坪山', '光明', '大鹏新区', '深汕特别合作区'].map(d => [d, null])),
+    } },
+  };
 
   function provinceOf(city) {
     const p = PROVINCES.find(p => p.cities.includes(city));
@@ -154,6 +192,8 @@
     for (const k of POLICY_FIELDS) { out[k] = over[k] || base[k]; out.origin[k] = over[k] ? '市级' : '省级'; }
     return out;
   }
+
+  CITY_OVERRIDES['深圳'].local_notes = { double_wage: '深圳中院裁判指引第66条：补订劳动合同不免除补订前的二倍工资；但劳动者同意合同往前溯及的，视为放弃。' };
 
   const api = { PROVINCES, PROVINCE_DEFAULTS, CITY_OVERRIDES, provinceOf, standardsFor };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

@@ -318,6 +318,7 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
           <div v-if="c.calc && c.calc.lack" class="formula">还缺：{{ c.calc.lack.join('、') }}</div>
           <div v-if="c.calc && c.calc.conservative != null" class="formula">保守值：{{ E.yuan(c.calc.conservative) }} 元（{{ c.calc.conservativeNote }}）</div>
           <div v-for="n in (c.calc && c.calc.notes) || []" class="formula">注：{{ n }}</div>
+          <div v-if="std && std.local_notes && std.local_notes[c.id]" class="formula">{{ stdCity }}口径：{{ std.local_notes[c.id] }}</div>
         </div>
         <div class="calc-line"><div class="row"><b class="grow">合计（主张值）</b><span class="amount">{{ E.yuan(totals.total) }} 元</span></div>
           <div v-if="totals.conservative !== totals.total" class="row"><span class="grow sub">保守值合计</span><span class="amount">{{ E.yuan(totals.conservative) }} 元</span></div></div>
@@ -536,23 +537,29 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
       <div v-if="limitNear" class="danger">时效快到了：先提交保住时效，证据可以之后补。</div>
       <section class="card stack">
         <h2>去哪里交</h2>
-        <div v-if="appFormat.triage" class="stack">
+        <div v-if="appFormat.triage && !appFormat.triage.districts" class="stack">
           <p class="sub">{{ appFormat.triage.question }}</p>
           <div class="row"><button class="chip" :class="{on: st.facts.city_level === 'yes'}" @click="editFact('city_level', 'yes')">是</button><button class="chip" :class="{on: st.facts.city_level === 'no'}" @click="editFact('city_level', 'no')">不是</button></div>
         </div>
-        <label v-if="appFormat.districts && st.facts.city_level !== 'yes'" class="f">你在哪个区上班 <small class="src">{{ src('district') }}</small>
-          <select id="district" :value="st.facts.district || ''" @change="e => editFact('district', e.target.value)"><option value="">请选择</option><option v-for="(v, d) in appFormat.districts" :value="d">{{ d }}{{ d === '经开区' ? '' : '区' }}</option></select></label>
+        <label v-if="appFormat.districts && !(appFormat.triage && !appFormat.triage.districts && st.facts.city_level === 'yes')" class="f">你在哪个区上班 <small class="src">{{ src('district') }}</small>
+          <select id="district" :value="st.facts.district || ''" @change="e => editFact('district', e.target.value)"><option value="">请选择</option><option v-for="(v, d) in appFormat.districts" :value="d">{{ d }}{{ d.endsWith('区') ? '' : '区' }}</option></select></label>
+        <div v-if="appFormat.triage && appFormat.triage.districts && triageOn" class="stack">
+          <p class="sub">{{ appFormat.triage.question }}</p>
+          <div class="row"><button class="chip" :class="{on: st.facts.city_level === 'yes'}" @click="editFact('city_level', 'yes')">是</button><button class="chip" :class="{on: st.facts.city_level === 'no'}" @click="editFact('city_level', 'no')">不是</button></div>
+        </div>
+        <p v-if="appFormat.triage_skip_note && st.facts.district && !triageOn" class="sub">{{ appFormat.triage_skip_note }}</p>
         <p v-if="appFormat.jurisdiction" class="sub">{{ appFormat.jurisdiction }}</p>
         <p><b>{{ appFormat.institution && appFormat.institution.name || arbitration }}</b></p>
         <template v-if="institution">
-          <p class="sub">窗口：{{ institution.address }}<template v-if="institution.phone"><br>电话：{{ institution.phone }}</template><template v-if="institution.hours"><br>办公时间（法定工作日）：{{ institution.hours }}</template><template v-if="!institution.phone"><br>电话和办公时间还没核实，请拨打 12333 查询。</template></p>
+          <p class="sub">窗口：{{ institution.address }}<template v-if="institution.phone"><br>电话：{{ institution.phone }}</template><template v-if="institution.hours"><br>办公时间（法定工作日）：{{ institution.hours }}</template><template v-if="!institution.phone"><br>电话和办公时间还没核实，请拨打 {{ appFormat.hotline || '12333' }} 查询。</template><template v-else-if="!institution.hours"><br>官方页面没列接待时间，去之前先打电话问。</template></p>
           <p v-if="institution.pending" class="warn">待核，去之前先打电话确认。</p>
           <p class="sub">来源：{{ institution.source }}，核对日期 {{ institution.checked }}。窗口信息会变动，出发前先打电话确认。</p>
         </template>
-        <p class="sub" v-else-if="appFormat.districts && st.facts.district">这个区的窗口信息还没核实，请拨打 12333 查询。</p>
+        <p class="sub" v-else-if="appFormat.districts && st.facts.district">这个区的窗口信息还没核实，请拨打 {{ appFormat.hotline || '12333' }} 查询。</p>
         <p class="sub" v-else-if="appFormat.districts">先选你上班所在的区。</p>
         <p class="sub" v-else>窗口地址和电话还没录入（待核）。可以拨打 12333 问「{{ st.facts.city }}劳动仲裁在哪里交」，或搜索当地人社局官网的「劳动人事争议仲裁办事指南」。市级和区县级仲裁委怎么分工各地不同，电话里一并问清。</p>
         <p v-if="appFormat.submit_note" class="sub">{{ appFormat.submit_note }}</p>
+        <div v-if="appFormat.pre_mediation" class="warn">{{ appFormat.pre_mediation }}</div>
         <p class="sub">工作地和公司所在地的仲裁委都可以受理；默认推荐工作地。</p>
       </section>
       <!-- 推荐线上的地区：平台填写对照表（按平台步骤顺序，每项可复制） -->
@@ -576,10 +583,10 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
       <section class="card stack">
         <h2>{{ appFormat.online && appFormat.online.recommend ? '其他提交方式' : '三种提交方式' }}</h2>
         <div class="calc-line"><b>现场提交（最稳妥）</b><span class="formula">带上打印好的整套材料和身份证原件，到窗口递交。<b>一定要索要收件回执</b>并拍照：材料不齐的，仲裁委会当场或 5 个工作日内一次性告诉你要补什么（办案规则第 29 条）。</span></div>
-        <div class="calc-line stack"><b>邮寄（先打电话确认这个仲裁委接受邮寄）</b><span class="formula">{{ appFormat.mail || '法律只要求书面申请，没有禁止邮寄，接不接受由各仲裁委自己定。寄到哪里，打电话问清楚。' }}</span>
+        <div class="calc-line stack"><b>{{ appFormat.mail_formal ? '邮寄（当地正式路线）' : '邮寄（先打电话确认这个仲裁委接受邮寄）' }}</b><span class="formula">{{ appFormat.mail || '法律只要求书面申请，没有禁止邮寄，接不接受由各仲裁委自己定。寄到哪里，打电话问清楚。' }}</span>
           <div v-if="mailRisky" class="warn">离时效届满不到 30 天，不推荐邮寄：邮寄那天算不算申请日没有明确规定。请本人或委托代理人到窗口提交。</div>
           <span class="formula">① 用 EMS 等能查物流的方式寄，保留寄件凭证和材料清单。② 寄出后打电话确认对方收到没有、受理没有。</span></div>
-        <div class="calc-line"><b>线上</b><span class="formula" v-if="appFormat.online && appFormat.online.recommend">见上方「推荐线上提交」。</span><span class="formula" v-else-if="appFormat.online">{{ appFormat.online.name }}：<a :href="appFormat.online.url" target="_blank" rel="noopener">{{ appFormat.online.url }}</a>。按页面提示逐项上传：申请书、证据清单、证据照片、身份证正反面。</span><span class="formula" v-else-if="appFormat.online_note">{{ appFormat.online_note }}</span><span class="formula" v-else>全国没有统一的线上仲裁入口，当地线上渠道待核。人社部的在线调解平台只办调解，不办仲裁申请。</span></div>
+        <div class="calc-line"><b>线上</b><span class="formula" v-if="appFormat.online && appFormat.online.recommend">见上方「推荐线上提交」。</span><span class="formula" v-else-if="appFormat.online">{{ appFormat.online.name }}：<a :href="appFormat.online.url" target="_blank" rel="noopener">{{ appFormat.online.url }}</a>。按页面提示逐项上传：申请书、证据清单、证据照片、身份证正反面。{{ appFormat.online_note || '' }}</span><span class="formula" v-else-if="appFormat.online_note">{{ appFormat.online_note }}</span><span class="formula" v-else>全国没有统一的线上仲裁入口，当地线上渠道待核。人社部的在线调解平台只办调解，不办仲裁申请。</span></div>
       </section>
       <section class="card stack">
         <h2>出门前自查</h2>

@@ -59,3 +59,19 @@ test('上海：市仲裁院分流题，16 区通讯录待核，交 2 份留 1 �
   const bj = G.standardsFor('北京', '2026-10-01').application_format;
   assert.strictEqual(P.copies(bj.copy_rule, 1).submit, 2);
 });
+
+test('广东：全省先行调解；广州分流只对 7 个区、邮寄是正式路线；深圳 4 区问注册资本、各区待核', () => {
+  const G = require('../rules/regions.js');
+  assert.match(G.standardsFor('佛山', '2026-10-01').application_format.pre_mediation, /可以拒绝/);
+  const gz = G.standardsFor('广州', '2026-10-01').application_format;
+  assert.ok(!gz.triage.districts.includes('黄埔'));
+  assert.strictEqual(gz.districts['天河'].phone, '020-87580766');
+  assert.strictEqual(Object.keys(gz.districts).length, 11);
+  assert.ok(gz.mail_formal);
+  const sz = G.standardsFor('深圳', '2026-10-01');
+  assert.deepStrictEqual(sz.application_format.triage.districts, ['福田', '罗湖', '南山', '盐田']);
+  assert.strictEqual(sz.application_format.hotline, '0755-12333');
+  assert.ok(Object.values(sz.application_format.districts).every(d => d === null));
+  assert.match(sz.local_notes.double_wage, /第66条/);
+  assert.strictEqual(P.copies(gz.copy_rule, 1).submit, 2);
+});
