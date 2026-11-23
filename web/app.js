@@ -264,14 +264,21 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
         if (said || addr) { st.facts.district = said || addr; st.sources.district = said ? '你在对话里说的' : '公司住所（如果工作地在别的区，请改）'; }
       });
 
+      // 保存到本机：合并 0.5 秒内的改动再写一次（以前每按一个键都把全部案件读写一遍，案件多了会卡）
+      let persistTimer = null;
       function persist() {
-        st.updated = new Date().toISOString();
-        const list = loadCases().filter(c => c.id !== st.id);
-        list.unshift(JSON.parse(JSON.stringify(st)));
-        saveCases(list.slice(0, 20));
-        ui.cases = loadCases();
+        clearTimeout(persistTimer);
+        persistTimer = setTimeout(() => {
+          st.updated = new Date().toISOString();
+          const list = loadCases().filter(c => c.id !== st.id);
+          list.unshift(JSON.parse(JSON.stringify(st)));
+          const next = list.slice(0, 20);
+          saveCases(next);
+          ui.cases = next;
+        }, 500);
       }
       watch(st, persist, { deep: true });
+      window.addEventListener('pagehide', () => { if (persistTimer) { clearTimeout(persistTimer); const list = loadCases().filter(c => c.id !== st.id); list.unshift(JSON.parse(JSON.stringify(st))); saveCases(list.slice(0, 20)); } });
 
       // ---------- 信息链：所有来源（对话、补正、照片、点选、手改）都写进同一份案件数据，并记下来源 ----------
       const ALL_EVIDENCE = R.EVIDENCE.flatMap(g => g.options);
@@ -897,7 +904,8 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
         ui.riskBusy = false;
       }
       const risksStale = computed(() => !st.aiRisks || st.aiRisks.key !== recordKey.value);
-      watch(() => st.page, p => { if ((p === 'P4' || p === 'P5') && risksStale.value && record.value.user_words.length) checkRisks(); });
+      // 只在第一次进报告页时自动查一次；之后有变化显示按钮，由用户决定要不要再查（少一次等待）
+      watch(() => st.page, p => { if (p === 'P4' && !st.aiRisks && record.value.user_words.length) checkRisks(); });
 
       // 开庭准备：仲裁员可能问的问题 + 回答要点（不含金额，日期必须是记录里有的，证据只能从清单里选）
       async function genHearing() {

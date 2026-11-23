@@ -409,36 +409,6 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
         <h2>证据清单</h2>
         <p class="sub">只列和你选的请求有关的证据。点一下就勾上，并可以上传照片：{{ imgCaps.ok ? '我会读出上面的信息，自动记下，写申请书时不用再填。' : '当前环境不能识别图片，照片只做附件。' }}勾选会更新报告里的分档。</p>
       </section>
-      <section v-if="codeRiskList.length || (st.aiRisks && st.aiRisks.list.length) || ui.riskBusy || record.user_words.length" class="card stack" id="risks">
-        <h2>风险提醒</h2>
-        <div v-for="(r, i) in codeRiskList" :key="'c' + i" class="risk stack" :class="r.level"><b>{{ r.title }}</b><span class="sub">{{ r.text }}</span></div>
-        <div v-for="(r, i) in (st.aiRisks && st.aiRisks.list) || []" :key="'a' + i" class="risk stack"><b>前后说法对不上</b><span class="sub">「{{ r.a }}」和「{{ r.b }}」</span><span class="sub">{{ r.tip }}</span></div>
-        <p v-if="st.aiRisks && !st.aiRisks.list.length && !risksStale && !codeRiskList.length" class="sub">没发现前后说法对不上的地方。</p>
-        <p v-if="ui.riskBusy" class="sub">正在检查你说过的话和材料有没有对不上的地方…</p>
-        <button v-else-if="risksStale && record.user_words.length" class="btn ghost" @click="checkRisks">检查前后说法有没有矛盾</button>
-        <p class="sub">期限和证据档位由代码算；「前后说法对不上」由 AI 找，两处原话都来自你说过的话或上传的材料。</p>
-      </section>
-      <section class="card stack" id="recording">
-        <h2>录音整理</h2>
-        <p class="sub">有辞退、讨薪的录音？用微信「转文字」或手机自带的录音转写，把文字粘贴到下面；{{ ui.canDictate ? '也可以点「边放边听写」，外放录音让我听。' : '' }}我会摘出关键原话，你勾选确认后记进案件，并勾上「通话录音」证据。原始录音文件请保留好，开庭要用。</p>
-        <textarea id="rec-text" v-model="ui.recText" rows="5" placeholder="把录音的文字稿粘贴到这里"></textarea>
-        <p v-if="ui.dictPartial" class="sub">听写中：{{ ui.dictPartial }}</p>
-        <div class="row">
-          <button v-if="ui.canDictate" class="btn ghost" @click="toggleDictation">{{ ui.dictating ? '停止听写' : '边放边听写' }}</button>
-          <button id="rec-extract" class="btn" :disabled="ui.recBusy || ui.recText.trim().length < 4" @click="extractQuotes">{{ ui.recBusy ? '正在摘取…' : '摘出关键原话' }}</button>
-        </div>
-        <template v-if="ui.recQuotes.length">
-          <label v-for="(q, i) in ui.recQuotes" :key="i" class="check"><input type="checkbox" v-model="ui.recPick[i]"><span><b>{{ q.speaker }}：</b>「{{ q.quote }}」<br><small class="sub">{{ q.shows }}</small></span></label>
-          <button id="rec-confirm" class="btn block" @click="confirmQuotes">确认，记进案件</button>
-        </template>
-        <p v-for="(r, i) in st.recordings" :key="'r' + i" class="sub">已记入第 {{ i + 1 }} 段录音：{{ r.quotes.length }} 句原话。</p>
-      </section>
-      <section v-if="evTimeline.length" class="card stack" id="ev-timeline">
-        <h2>材料时间线</h2>
-        <p class="sub">按材料上的日期排好，看得出事情的先后。没读出日期的排在最后；同一个文件传两次只算一次。</p>
-        <div class="tl"><template v-for="(e, i) in evTimeline" :key="i"><span class="sub">{{ e.date || '日期不明' }}</span><span><b>{{ e.tag }}</b><template v-if="e.note">：{{ e.note }}</template></span></template></div>
-      </section>
-      <!-- 补正对话：想到啥说啥 -->
       <section class="card stack" id="supplement">
         <h2>还有什么想补充的？</h2>
         <p class="sub">看了报告和对方可能的说法，想到什么直接说：当时的经过、对方说过的话、手上还有什么证据，都可以。不用一条条对应，我会读出新的事实、勾上你提到的证据，再重新分析。</p>
@@ -496,6 +466,26 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
         <p class="sub">申请时一般交复印件，开庭带原件。{{ R.EVIDENCE_TIP }}</p>
         <button class="btn ghost block" @click="save('证据目录.docx', evidenceDoc())">导出证据目录（Word）</button>
       </section>
+      <details class="card stack" id="recording">
+        <summary><b>有录音？整理成文字证据</b></summary>
+        <p class="sub">有辞退、讨薪的录音？用微信「转文字」或手机自带的录音转写，把文字粘贴到下面；{{ ui.canDictate ? '也可以点「边放边听写」，外放录音让我听。' : '' }}我会摘出关键原话，你勾选确认后记进案件，并勾上「通话录音」证据。原始录音文件请保留好，开庭要用。</p>
+        <textarea id="rec-text" v-model="ui.recText" rows="5" placeholder="把录音的文字稿粘贴到这里"></textarea>
+        <p v-if="ui.dictPartial" class="sub">听写中：{{ ui.dictPartial }}</p>
+        <div class="row">
+          <button v-if="ui.canDictate" class="btn ghost" @click="toggleDictation">{{ ui.dictating ? '停止听写' : '边放边听写' }}</button>
+          <button id="rec-extract" class="btn" :disabled="ui.recBusy || ui.recText.trim().length < 4" @click="extractQuotes">{{ ui.recBusy ? '正在摘取…' : '摘出关键原话' }}</button>
+        </div>
+        <template v-if="ui.recQuotes.length">
+          <label v-for="(q, i) in ui.recQuotes" :key="i" class="check"><input type="checkbox" v-model="ui.recPick[i]"><span><b>{{ q.speaker }}：</b>「{{ q.quote }}」<br><small class="sub">{{ q.shows }}</small></span></label>
+          <button id="rec-confirm" class="btn block" @click="confirmQuotes">确认，记进案件</button>
+        </template>
+        <p v-for="(r, i) in st.recordings" :key="'r' + i" class="sub">已记入第 {{ i + 1 }} 段录音：{{ r.quotes.length }} 句原话。</p>
+      </details>
+      <details v-if="evTimeline.length" class="card stack" id="ev-timeline">
+        <summary><b>材料时间线（{{ evTimeline.length }} 份）</b></summary>
+        <p class="sub">按材料上的日期排好，看得出事情的先后。没读出日期的排在最后；同一个文件传两次只算一次。</p>
+        <div class="tl"><template v-for="(e, i) in evTimeline" :key="i"><span class="sub">{{ e.date || '日期不明' }}</span><span><b>{{ e.tag }}</b><template v-if="e.note">：{{ e.note }}</template></span></template></div>
+      </details>
       <button class="btn block" @click="go('P6')">写仲裁申请书</button>
     </template>
 
