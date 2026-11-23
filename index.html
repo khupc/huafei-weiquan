@@ -168,10 +168,18 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
       <h3>历史案件</h3>
       <p class="sub">只保存在这台设备的浏览器里。</p>
       <button class="btn" @click="newCase">新建案件</button>
-      <button v-for="c in ui.cases" :key="c.id" class="case-item" @click="openCase(c)">
-        <b>{{ c.city || '未选城市' }}</b> · {{ (c.chat.find(m => m.role === 'user') || {}).text?.slice(0, 18) || '尚未描述' }}
-        <div class="sub">{{ c.updated ? c.updated.slice(0, 16).replace('T', ' ') : '' }} · 停在{{ PAGES.find(p => p.id === c.page)?.name }}</div>
-      </button>
+      <div v-for="c in ui.cases" :key="c.id" class="row" style="align-items:stretch">
+        <button class="case-item grow" @click="openCase(c)">
+          <b>{{ c.city || (c.facts && c.facts.city) || '未选城市' }}</b> · {{ (c.chat.find(m => m.role === 'user') || {}).text?.slice(0, 18) || '尚未描述' }}<template v-if="c.id === st.id">（当前）</template>
+          <div class="sub">{{ c.updated ? c.updated.slice(0, 16).replace('T', ' ') : '' }} · 停在{{ PAGES.find(p => p.id === c.page)?.name }}</div>
+        </button>
+        <button v-if="ui.delId !== c.id" class="btn plain" aria-label="删除" @click="ui.delId = c.id">删除</button>
+        <button v-else class="btn" style="background:var(--danger);border-color:var(--danger)" @click="deleteCase(c.id)">确认删除</button>
+      </div>
+      <template v-if="ui.cases.length > 1">
+        <button v-if="ui.delId !== 'all'" class="btn plain" @click="ui.delId = 'all'">清空全部历史案件</button>
+        <button v-else class="btn" style="background:var(--danger);border-color:var(--danger)" @click="deleteCase('all')">确认清空全部（不能恢复）</button>
+      </template>
     </aside>
   </template>
 

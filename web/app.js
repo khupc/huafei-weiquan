@@ -203,7 +203,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
   createApp({
     setup() {
       const st = reactive(blankCase());
-      const ui = reactive({ reply: '', busy: false, drawer: false, cases: loadCases(), tab: 'detail', missing: [], focusQ: '', supp: '', evBusy: false, exportText: '', editing: false, toast: '', qaOpen: false, qaInput: '', qaBusy: false, recText: '', recBusy: false, recQuotes: [], recPick: {}, dictating: false, dictPartial: '', canDictate: false, riskBusy: false, hearBusy: false, negoBusy: false });
+      const ui = reactive({ reply: '', busy: false, drawer: false, cases: loadCases(), tab: 'detail', missing: [], focusQ: '', supp: '', evBusy: false, exportText: '', editing: false, toast: '', qaOpen: false, qaInput: '', qaBusy: false, recText: '', recBusy: false, recQuotes: [], recPick: {}, dictating: false, dictPartial: '', canDictate: false, riskBusy: false, hearBusy: false, negoBusy: false, delId: '' });
       dictationPromise.then(d => { ui.canDictate = !!d; });
 
       const allCities = G.PROVINCES.flatMap(p => p.cities.map(c => ({ city: c, province: p.province })));
@@ -269,6 +269,8 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       function persist() {
         clearTimeout(persistTimer);
         persistTimer = setTimeout(() => {
+          persistTimer = null;
+          if (!st.chat.some(m => m.role === 'user') && !st.recognized.length) return;   // 还没开始的空案件不进历史
           st.updated = new Date().toISOString();
           const list = loadCases().filter(c => c.id !== st.id);
           list.unshift(JSON.parse(JSON.stringify(st)));
@@ -278,7 +280,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
         }, 500);
       }
       watch(st, persist, { deep: true });
-      window.addEventListener('pagehide', () => { if (persistTimer) { clearTimeout(persistTimer); const list = loadCases().filter(c => c.id !== st.id); list.unshift(JSON.parse(JSON.stringify(st))); saveCases(list.slice(0, 20)); } });
+      window.addEventListener('pagehide', () => { if (persistTimer && st.chat.some(m => m.role === 'user')) { clearTimeout(persistTimer); const list = loadCases().filter(c => c.id !== st.id); list.unshift(JSON.parse(JSON.stringify(st))); saveCases(list.slice(0, 20)); } });
 
       // ---------- 信息链：所有来源（对话、补正、照片、点选、手改）都写进同一份案件数据，并记下来源 ----------
       const ALL_EVIDENCE = R.EVIDENCE.flatMap(g => g.options);
@@ -677,6 +679,14 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       }
 
       function newCase() { Object.assign(st, blankCase()); ui.drawer = false; }
+      // 删除历史案件（只删这台设备上的）；删的是当前案件就换成一个新的空案件
+      function deleteCase(id) {
+        clearTimeout(persistTimer); persistTimer = null;
+        const list = id === 'all' ? [] : loadCases().filter(c => c.id !== id);
+        saveCases(list); ui.cases = list; ui.delId = '';
+        if (id === 'all' || id === st.id) Object.assign(st, blankCase());
+        flash(id === 'all' ? '已清空全部历史案件' : '已删除');
+      }
       function openCase(c) { Object.assign(st, blankCase(), JSON.parse(JSON.stringify(c))); if (st.page === 'P0') st.page = 'P1'; ui.drawer = false; }
 
       // ---------- P6 校验 ----------
@@ -960,7 +970,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       const pct = k => totals.value.total ? (totals.value[k] / totals.value.total * 100) + '%' : '0%';
 
       return { genHearing, hearingStale, negoMoney, negoDeadline, genNegotiation, negoStale, record, kbEntries, askQA, QA_CHIPS, evTimeline, toggleDictation, extractQuotes, confirmQuotes, codeRiskList, checkRisks, risksStale, st, ui, R, E, F, G, PAGES, model, allCities, std, stdCity, stdOrigin, imgCaps, files, upload, kindOfTag: D.kindOfTag, analysis, chosen, conflicts, totals, next, prog, factRows, evidenceGroups, arbitration,
-        answer, pick, notSure, editFact, toAnalysis, pendingKeys, confirmParams, gate, supplement, organizeEvidence, evItems, src, resolveAsk, confirmRec, guideQs, fillHint, suggestMiss, partyMissing, partyDone, claimCheck, uploadInChat, eligible, institution, platformSteps, copyText, saveEvidenceZip, copyCount, materialList, checkItems, events, limitNear, mailRisky, triageOn, uploadReceipt, saveIcs, serviceAddressDoc, powerOfAttorneyDoc, printListDoc, printPackage, hasRecording, reasonProblems, appFormat, W, toggleClaim, toggleEvidence, go, newCase, openCase, appNext, exportApp, draft, requestLines,
+        answer, pick, notSure, editFact, toAnalysis, pendingKeys, confirmParams, gate, supplement, organizeEvidence, evItems, src, resolveAsk, confirmRec, guideQs, fillHint, suggestMiss, partyMissing, partyDone, claimCheck, uploadInChat, eligible, institution, platformSteps, copyText, saveEvidenceZip, copyCount, materialList, checkItems, events, limitNear, mailRisky, triageOn, uploadReceipt, saveIcs, serviceAddressDoc, powerOfAttorneyDoc, printListDoc, printPackage, hasRecording, reasonProblems, appFormat, W, toggleClaim, toggleEvidence, go, newCase, openCase, deleteCase, appNext, exportApp, draft, requestLines,
         save, evidenceDoc, applicationDoc, examples, useExample, fillSample, tierClass, statusClass, pct, display, labelOf, today };
     },
   }).mount('#app');
