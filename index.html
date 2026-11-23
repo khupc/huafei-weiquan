@@ -72,6 +72,7 @@ label.f { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
 .city b { color: var(--ink); }
 .city-list { max-height: 240px; overflow-y: auto; display: flex; flex-wrap: wrap; gap: 6px; padding-top: 8px; }
 .disclaimer { font-size: 12px; color: var(--muted); text-align: center; }
+.disclaimer a { color: inherit; text-decoration: underline; margin-left: 4px; }
 
 /* 对话 */
 .chat { display: grid; gap: 10px; }
@@ -162,7 +163,6 @@ ol.path small { color: var(--muted); display: block; }
 .tl { display: grid; grid-template-columns: 6.5em 1fr; gap: 4px 10px; font-size: 14px; }
 .modal-mask { position: fixed; inset: 0; background: rgb(0 0 0 / .45); z-index: 40; }
 .privacy ul { margin: 0; padding-left: 1.1em; text-align: left; font-size: 14px; }
-.privacy .sens { display: flex; align-items: flex-start; gap: 8px; text-align: left; font-size: 13px; color: var(--muted, #666); }
 .drawer-foot { display: flex; gap: 8px; margin-top: 8px; border-top: 1px solid var(--line, #e5e5e5); padding-top: 8px; }
 .promise { text-align: center; }
 .cmp { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
@@ -229,37 +229,18 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
       <button class="btn plain" @click="ui.delId = ''">取消</button>
     </div>
   </template>
-  <!-- 个人信息告知同意：首次打开必看；之后从菜单「隐私说明」查看或撤回 -->
+  <!-- 隐私说明：不在开头拦人，只在对话页和菜单里给入口；删除走已有的删除/清空 -->
   <template v-if="ui.privacyOpen">
-    <div class="modal-mask"></div>
+    <div class="modal-mask" @click="ui.privacyOpen = false"></div>
     <div class="modal privacy" role="dialog" aria-modal="true" aria-labelledby="pv-title">
       <h3 id="pv-title">你的信息怎么处理</h3>
       <ul class="stack">
         <li><b>收集什么：</b>你说的工作情况，和你自己选择上传的合同、截图、证件。只用来算钱和写申请书。</li>
         <li><b>谁来处理：</b>整理对话、识别材料时，内容会发给 AI 模型（Claude，由 Anthropic 提供）；金额由程序计算。</li>
         <li><b>存在哪：</b>案件记录只存在这台设备的浏览器里，原始文件不保存，刷新页面就没了。</li>
-        <li><b>怎么删：</b>菜单里能随时删除单个或全部案件；撤回同意会清除本机全部记录。</li>
+        <li><b>怎么删：</b>菜单里能随时删除单个或全部案件。</li>
       </ul>
-      <template v-if="!ui.privacy.ok">
-        <label class="row sens"><input type="checkbox" id="pv-sens" v-model="ui.sensChk"><span>另外同意读取身份证号等敏感信息，只用于填写仲裁申请书（可不勾，之后传身份证时再问你）</span></label>
-        <button id="pv-agree" class="btn" @click="agreePrivacy">同意并开始</button>
-        <button class="btn plain" @click="ui.privacyNo = true">不同意</button>
-        <p v-if="ui.privacyNo" class="sub">不同意的话，没法帮你整理和计算。你可以直接关闭页面，什么都不会保存。</p>
-      </template>
-      <template v-else>
-        <p class="sub">你已于 {{ (ui.privacy.at || '').slice(0, 10) }} 同意{{ ui.privacy.sensitive ? '，并单独同意读取身份证号' : '' }}。</p>
-        <button class="btn" @click="ui.privacyOpen = false">知道了</button>
-        <button id="pv-withdraw" class="btn plain" @click="withdrawPrivacy">撤回同意并清除本机全部记录</button>
-      </template>
-    </div>
-  </template>
-  <template v-if="ui.sensAsk">
-    <div class="modal-mask" @click="ui.sensAsk = null"></div>
-    <div class="modal" role="alertdialog" aria-modal="true" aria-labelledby="sens-title">
-      <h3 id="sens-title">读取身份证需要你单独同意</h3>
-      <p class="sub">身份证号属于敏感个人信息。读到的姓名、身份证号、住址只用来填写仲裁申请书，记录只存在这台设备上，随时能删。</p>
-      <button id="sens-agree" class="btn" @click="agreeSensitive">同意并选择照片</button>
-      <button class="btn plain" @click="ui.sensAsk = null">先不传</button>
+      <button class="btn" @click="ui.privacyOpen = false">知道了</button>
     </div>
   </template>
   <main class="wrap">
@@ -302,7 +283,7 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
         </template>
         <div v-if="!st.chat.some(m => m.role === 'user')" class="stack">
           <div class="row"><button v-for="k in examples" :key="k" class="chip" @click="useExample(k)">{{ k }}</button><button class="chip" @click="fillSample">填入示例</button></div>
-          <p class="disclaimer">AI 生成内容，仅供参考，不构成法律意见。<br><span class="model">模型：{{ model.status }}</span></p>
+          <p class="disclaimer">AI 生成内容，仅供参考，不构成法律意见。<br>你发的内容交给 AI 整理，记录只存在这台设备上，可随时删除。<a href="#" id="privacy-link" @click.prevent="ui.privacyOpen = true">隐私说明</a><br><span class="model">模型：{{ model.status }}</span></p>
         </div>
         <div v-if="ui.busy" class="thinking">正在读你说的话…（用 Claude 时约几秒）</div>
         <div id="chat-end"></div>
@@ -557,7 +538,7 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
       <!-- 当事人材料：和证据一起传，申请书的当事人信息由这里自动填，不留到最后 -->
       <section class="card stack" id="party-docs">
         <h3>双方身份材料</h3>
-        <p class="sub">申请书要写清双方信息，仲裁委立案也要身份证复印件。在这里一起传，申请书里的当事人信息会自动填好。</p>
+        <p class="sub">申请书要写清双方信息，仲裁委立案也要身份证复印件。在这里一起传，申请书里的当事人信息会自动填好。身份证信息只用来填申请书，只存在这台设备上。</p>
         <div class="row">
           <button class="chip" :class="{on: partyDone.applicant}" @click="upload('id_card', '身份证', 'party|身份证')">你的身份证{{ files['party|身份证'] ? ' · ' + files['party|身份证'].length + ' 个文件' : '' }}</button>
           <button class="chip" :class="{on: partyDone.respondent}" @click="upload('license', '营业执照', 'party|营业执照')">公司营业执照{{ files['party|营业执照'] ? ' · ' + files['party|营业执照'].length + ' 个文件' : '' }}</button>

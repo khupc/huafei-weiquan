@@ -180,10 +180,6 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
   // ---------- 状态 ----------
   const STORE = 'la-cases-v1';
   function loadCases() { try { return JSON.parse(localStorage.getItem(STORE) || '[]'); } catch (e) { return []; } }
-  // 个人信息告知同意（个保法第 14、17、29 条）：一般同意 + 身份证号等敏感信息单独同意；撤回即清除本机数据
-  const PRIVACY = 'la_privacy_v1';
-  function loadPrivacy() { try { return JSON.parse(localStorage.getItem(PRIVACY) || 'null') || { ok: false, sensitive: false }; } catch (e) { return { ok: false, sensitive: false }; } }
-  function savePrivacy(p) { try { localStorage.setItem(PRIVACY, JSON.stringify(p)); } catch (e) { } }
   function saveCases(list) { try { localStorage.setItem(STORE, JSON.stringify(list)); } catch (e) { } }
 
   function blankCase() {
@@ -208,8 +204,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
   createApp({
     setup() {
       const st = reactive(blankCase());
-      const ui = reactive({ reply: '', busy: false, drawer: false, cases: loadCases(), tab: 'detail', missing: [], focusQ: '', supp: '', evBusy: false, exportText: '', editing: false, toast: '', qaOpen: false, qaInput: '', qaBusy: false, recText: '', recBusy: false, recQuotes: [], recPick: {}, dictating: false, dictPartial: '', canDictate: false, riskBusy: false, hearBusy: false, negoBusy: false, delId: '', renameId: '', renameText: '', dictTarget: 'rec', attachOpen: false, privacy: loadPrivacy(), privacyOpen: false, sensChk: false, sensAsk: null, privacyNo: false });
-      ui.privacyOpen = !ui.privacy.ok;
+      const ui = reactive({ reply: '', busy: false, drawer: false, cases: loadCases(), tab: 'detail', missing: [], focusQ: '', supp: '', evBusy: false, exportText: '', editing: false, toast: '', qaOpen: false, qaInput: '', qaBusy: false, recText: '', recBusy: false, recQuotes: [], recPick: {}, dictating: false, dictPartial: '', canDictate: false, riskBusy: false, hearBusy: false, negoBusy: false, delId: '', renameId: '', renameText: '', dictTarget: 'rec', attachOpen: false, privacyOpen: false });
       let dictObj = null;
       dictationPromise.then(d => { dictObj = d; ui.canDictate = !!d; });
 
@@ -459,7 +454,6 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       // ---------- 上传与识别 ----------
       const files = reactive({});          // 本次打开页面上传的文件，只在内存里，刷新后不保留
       function upload(kind, tag, slot) {
-        if (kind === 'id_card' && !ui.privacy.sensitive) { ui.sensAsk = () => upload(kind, tag, slot); return; }
         const inp = document.createElement('input');
         inp.type = 'file'; inp.multiple = true;
         inp.accept = imgCaps.ok ? imgCaps.accept + ',application/pdf' : 'image/*,application/pdf';
@@ -494,8 +488,8 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
         try { const b = await crypto.subtle.digest('SHA-256', await f.arrayBuffer()); return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join(''); } catch (e) { return f.name + f.size; }
       }
       async function recognize(kind, tag, slot, list) {
-        const fresh = [], added = [];
-        for (const f of list) { const h = await hashOf(f); if (!st.hashes.includes(h)) { st.hashes.push(h); added.push(h); fresh.push(f); } }
+        const fresh = [];
+        for (const f of list) { const h = await hashOf(f); if (!st.hashes.includes(h)) { st.hashes.push(h); fresh.push(f); } }
         if (!fresh.length) {
           const dup = { tag: tag || '材料', kind, ticked: false, at: new Date().toISOString(), filled: [], conflicts: [], keys: [], confirmed: false, note: `和之前传过的文件一模一样，已跳过：${list.map(f => f.name).join('、')}`, busy: false, dup: true, file: list.map(f => f.name).join('、') };
           st.recognized.unshift(dup);
@@ -519,11 +513,6 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
             kind = D.KINDS[data && data.kind] ? data.kind : 'other';
             tag = ALL_EVIDENCE.includes(data && data.tag) ? data.tag : D.KINDS[kind].title;
             r.kind = kind; r.tag = tag;
-            if (kind === 'id_card' && !ui.privacy.sensitive) {
-              st.hashes = st.hashes.filter(h => !added.includes(h));
-              r.busy = false; r.note = '这是身份证。读取身份证号需要你单独同意，在证据页点「你的身份证」同意后再传，申请书会自动填好。';
-              return r;
-            }
             if (ALL_EVIDENCE.includes(tag)) r.ticked = tickEvidence([tag]).length > 0;
             if (data && data.summary && !/元/.test(data.summary)) r.note = String(data.summary);
           }
@@ -540,6 +529,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
           if (out.asks.length) r.note = (r.note ? r.note + ' ' : '') + '有和之前不一致的地方，请在页面上方选以哪个为准。';
           if (out.reason) r.note = (r.note ? r.note + ' ' : '') + `材料上写的解除理由：「${out.reason}」`;
           if (!out.filled.length && !out.conflicts.length && !r.note) r.note = '没有读到新的信息。';
+          if (kind === 'id_card' && out.filled.length) r.note = (r.note ? r.note + ' ' : '') + '身份证信息只用来填写申请书，只存在这台设备上，可随时删除。';
         } catch (e) {
           r.note = e && e.code === 'not_granted' ? '你没有授权使用 Claude，没法识别，相关信息请手动填写。' : '识别没有成功，可以换一张清楚点的照片再试。';
         }
@@ -689,15 +679,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       // 识别卡上点「对」：这份材料读出的参数转为已确认
       function confirmRec(r) { for (const k of r.keys || []) delete st.pending[k]; r.confirmed = true; }
 
-      function agreePrivacy() { ui.privacy = { ok: true, sensitive: ui.sensChk, at: new Date().toISOString() }; savePrivacy(ui.privacy); ui.privacyOpen = false; ui.privacyNo = false; }
-      function agreeSensitive() { ui.privacy = { ...ui.privacy, sensitive: true }; savePrivacy(ui.privacy); const f = ui.sensAsk; ui.sensAsk = null; if (f) f(); }
-      function withdrawPrivacy() {
-        clearTimeout(persistTimer); persistTimer = null;
-        saveCases([]); try { localStorage.removeItem(PRIVACY); } catch (e) { }
-        ui.cases = []; Object.assign(st, blankCase());
-        ui.privacy = { ok: false, sensitive: false }; ui.sensChk = false; ui.privacyOpen = true; ui.drawer = false;
-        flash('已撤回同意，本机的案件记录已全部清除');
-      }
+
       function setOffer(v) { const n = +String(v).replace(/[,，元\s]/g, ''); if (n > 0) { st.facts.company_offer = n; st.sources.company_offer = '你在测算页填的'; st.manual.company_offer = true; } else { delete st.facts.company_offer; delete st.manual.company_offer; } }
       // 公司开价 vs 法定金额：差额由代码算
       const offerCmp = computed(() => {
@@ -1023,7 +1005,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       const stdOrigin = k => { const w = stdOf(st.facts.city, st.avgWage, st.minWage); return w ? w.origin[k] : '待补'; };
       const pct = k => totals.value.total ? (totals.value[k] / totals.value.total * 100) + '%' : '0%';
 
-      return { agreePrivacy, agreeSensitive, withdrawPrivacy, setOffer, offerCmp, shareApp, saveDeadlineIcs, genHearing, hearingStale, negoMoney, negoDeadline, genNegotiation, negoStale, record, kbEntries, askQA, QA_CHIPS, evTimeline, toggleDictation, extractQuotes, confirmQuotes, codeRiskList, checkRisks, risksStale, st, ui, R, E, F, G, PAGES, model, allCities, std, stdCity, stdOrigin, imgCaps, files, upload, kindOfTag: D.kindOfTag, analysis, chosen, conflicts, totals, next, prog, factRows, evidenceGroups, arbitration,
+      return { setOffer, offerCmp, shareApp, saveDeadlineIcs, genHearing, hearingStale, negoMoney, negoDeadline, genNegotiation, negoStale, record, kbEntries, askQA, QA_CHIPS, evTimeline, toggleDictation, extractQuotes, confirmQuotes, codeRiskList, checkRisks, risksStale, st, ui, R, E, F, G, PAGES, model, allCities, std, stdCity, stdOrigin, imgCaps, files, upload, kindOfTag: D.kindOfTag, analysis, chosen, conflicts, totals, next, prog, factRows, evidenceGroups, arbitration,
         answer, pick, notSure, editFact, toAnalysis, pendingKeys, confirmParams, gate, supplement, organizeEvidence, evItems, src, resolveAsk, confirmRec, guideQs, fillHint, suggestMiss, partyMissing, partyDone, claimCheck, uploadInChat, eligible, institution, platformSteps, copyText, saveEvidenceZip, copyCount, materialList, checkItems, events, limitNear, mailRisky, triageOn, uploadReceipt, saveIcs, serviceAddressDoc, powerOfAttorneyDoc, printListDoc, printPackage, hasRecording, reasonProblems, appFormat, W, toggleClaim, toggleEvidence, go, newCase, openCase, deleteCase, startRename, renameCase, appNext, exportApp, draft, requestLines,
         save, evidenceDoc, applicationDoc, examples, useExample, fillSample, tierClass, statusClass, pct, display, labelOf, today };
     },
