@@ -293,3 +293,11 @@ test('四川：离职原因证明不了时，违法解除保守值是 N', () => 
   assert.strictEqual(r.conservative, r.amount / 2);
   assert.strictEqual(E.illegalTermination(f, G.standardsFor('杭州', '2026-10-01')).conservative, undefined);
 });
+
+test('公司开价：关键词抽取，不把工资或用户自己想要的当开价', () => {
+  const F = require('../engine/facts.js');
+  assert.equal(F.keywordExtract('公司让我签离职协议，公司说只给2万补偿').company_offer, 20000);
+  assert.equal(F.keywordExtract('HR说按协议赔我15000').company_offer, 15000);
+  assert.equal(F.keywordExtract('公司给我工资9000').company_offer, undefined);
+  assert.equal(F.keywordExtract('我想要公司赔偿5万').company_offer, undefined);
+});

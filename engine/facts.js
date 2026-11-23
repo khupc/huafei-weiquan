@@ -152,6 +152,8 @@
       ask: '公司全称是什么？可以对照营业执照、工资转账备注或社保记录。',
       alt: '不知道全称也没关系，先写你知道的名字，申请书那一步可以再查。',
     },
+    // 公司开的价（离职协议/补偿方案）：不追问，用户说了就记下，测算页和法定金额并排对比
+    company_offer: { label: '公司给的补偿方案（元）', type: 'number' },
   };
 
   const ORDER = ['city', 'separation', 'start_date', 'end_date', 'monthly_wage', 'signed_contract', 'contract_signed_date',
@@ -232,6 +234,13 @@
       let v = parseFloat(wage[1]);
       if (wage[2] === '万') v *= 10000; else if (wage[2] === '千' || /k/i.test(wage[2] || '')) v *= 1000;
       out.monthly_wage = v;
+    }
+
+    // 公司开价：「公司/老板/HR…给/出/开…5万」且同一句里提到补偿、赔偿、协议或方案
+    for (const clause of t.split(/[。，,；;！!？?]/)) {
+      if (!/补偿|赔偿|协议|方案/.test(clause) || /我(想|要)/.test(clause)) continue;
+      const m = clause.match(/(?:公司|老板|HR|hr|人事|领导)[^\d]{0,10}?(?:给|出|开|赔|补)[^\d]{0,8}?(\d+(?:\.\d+)?)(万|千)?/);
+      if (m) { out.company_offer = parseFloat(m[1]) * (m[2] === '万' ? 10000 : m[2] === '千' ? 1000 : 1); break; }
     }
 
     if (/辞退|开除|炒了|别来了|不用来了|解雇|被裁|让我走|劝退/.test(t)) out.separation = 'company_terminated';

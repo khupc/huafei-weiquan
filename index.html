@@ -161,6 +161,11 @@ ol.path small { color: var(--muted); display: block; }
 .risk.high { border-color: var(--danger); }
 .tl { display: grid; grid-template-columns: 6.5em 1fr; gap: 4px 10px; font-size: 14px; }
 .modal-mask { position: fixed; inset: 0; background: rgb(0 0 0 / .45); z-index: 40; }
+.privacy ul { margin: 0; padding-left: 1.1em; text-align: left; font-size: 14px; }
+.privacy .sens { display: flex; align-items: flex-start; gap: 8px; text-align: left; font-size: 13px; color: var(--muted, #666); }
+.drawer-foot { display: flex; gap: 8px; margin-top: 8px; border-top: 1px solid var(--line, #e5e5e5); padding-top: 8px; }
+.promise { text-align: center; }
+.cmp { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
 .modal { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(320px, calc(100vw - 48px)); background: var(--surface); border-radius: 16px; padding: 22px 20px 12px; z-index: 41; display: grid; gap: 10px; text-align: center; box-shadow: 0 10px 30px rgb(0 0 0 / .25); }
 .modal h3 { margin: 0; font-size: 17px; }
 .modal .sub { margin: 0 0 6px; }
@@ -208,6 +213,10 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
       <template v-if="ui.cases.length > 1">
         <button class="btn plain" @click="ui.delId = 'all'">清空全部历史案件</button>
       </template>
+      <div class="drawer-foot">
+        <button id="share-app" class="btn plain" @click="shareApp">转发给朋友</button>
+        <button id="privacy-open" class="btn plain" @click="ui.privacyOpen = true; ui.drawer = false">隐私说明</button>
+      </div>
     </aside>
   </template>
 
@@ -218,6 +227,39 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
       <p class="sub">只删除这台设备浏览器里的记录，已下载的文书不受影响。</p>
       <button id="del-confirm" class="btn modal-danger" @click="deleteCase(ui.delId)">{{ ui.delId === 'all' ? '清空全部' : '删除该案件' }}</button>
       <button class="btn plain" @click="ui.delId = ''">取消</button>
+    </div>
+  </template>
+  <!-- 个人信息告知同意：首次打开必看；之后从菜单「隐私说明」查看或撤回 -->
+  <template v-if="ui.privacyOpen">
+    <div class="modal-mask"></div>
+    <div class="modal privacy" role="dialog" aria-modal="true" aria-labelledby="pv-title">
+      <h3 id="pv-title">你的信息怎么处理</h3>
+      <ul class="stack">
+        <li><b>收集什么：</b>你说的工作情况，和你自己选择上传的合同、截图、证件。只用来算钱和写申请书。</li>
+        <li><b>谁来处理：</b>整理对话、识别材料时，内容会发给 AI 模型（Claude，由 Anthropic 提供）；金额由程序计算。</li>
+        <li><b>存在哪：</b>案件记录只存在这台设备的浏览器里，原始文件不保存，刷新页面就没了。</li>
+        <li><b>怎么删：</b>菜单里能随时删除单个或全部案件；撤回同意会清除本机全部记录。</li>
+      </ul>
+      <template v-if="!ui.privacy.ok">
+        <label class="row sens"><input type="checkbox" id="pv-sens" v-model="ui.sensChk"><span>另外同意读取身份证号等敏感信息，只用于填写仲裁申请书（可不勾，之后传身份证时再问你）</span></label>
+        <button id="pv-agree" class="btn" @click="agreePrivacy">同意并开始</button>
+        <button class="btn plain" @click="ui.privacyNo = true">不同意</button>
+        <p v-if="ui.privacyNo" class="sub">不同意的话，没法帮你整理和计算。你可以直接关闭页面，什么都不会保存。</p>
+      </template>
+      <template v-else>
+        <p class="sub">你已于 {{ (ui.privacy.at || '').slice(0, 10) }} 同意{{ ui.privacy.sensitive ? '，并单独同意读取身份证号' : '' }}。</p>
+        <button class="btn" @click="ui.privacyOpen = false">知道了</button>
+        <button id="pv-withdraw" class="btn plain" @click="withdrawPrivacy">撤回同意并清除本机全部记录</button>
+      </template>
+    </div>
+  </template>
+  <template v-if="ui.sensAsk">
+    <div class="modal-mask" @click="ui.sensAsk = null"></div>
+    <div class="modal" role="alertdialog" aria-modal="true" aria-labelledby="sens-title">
+      <h3 id="sens-title">读取身份证需要你单独同意</h3>
+      <p class="sub">身份证号属于敏感个人信息。读到的姓名、身份证号、住址只用来填写仲裁申请书，记录只存在这台设备上，随时能删。</p>
+      <button id="sens-agree" class="btn" @click="agreeSensitive">同意并选择照片</button>
+      <button class="btn plain" @click="ui.sensAsk = null">先不传</button>
     </div>
   </template>
   <main class="wrap">
@@ -399,7 +441,20 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
         <div v-if="!pendingKeys.length" class="tri"><i :style="{width: pct('基本稳')}"></i><i :style="{width: pct('需补证')}"></i><i :style="{width: pct('有争议')}"></i></div>
         <div v-if="!pendingKeys.length" class="legend"><b style="color:var(--solid)">基本稳 {{ E.yuan(totals['基本稳']) }}</b><b style="color:var(--need)">需补证 {{ E.yuan(totals['需补证']) }}</b><b style="color:var(--dispute)">有争议 {{ E.yuan(totals['有争议']) }}</b></div>
         <p v-if="!pendingKeys.length && totals.conservative !== totals.total" class="sub">按更不利的口径算，保守值为 {{ E.yuan(totals.conservative) }} 元。</p>
-        <p class="sub">生成于 {{ today() }}；社平工资取 {{ stdCity }} {{ std && std.year }} 年度（{{ std && std.origin.avg_wage }}）。</p>
+        <p class="sub">生成于 {{ today() }} · 规则版本 {{ R.VERSION }}；社平工资取 {{ stdCity }} {{ std && std.year }} 年度（{{ std && std.origin.avg_wage }}）。</p>
+      </section>
+      <!-- 签字之前：公司开价和法定金额并排，差额代码算 -->
+      <section v-if="!pendingKeys.length" class="card stack" id="offer">
+        <h2>公司给你开价了吗？</h2>
+        <label class="f">公司给的钱（元）<small v-if="st.sources.company_offer" class="src">{{ st.sources.company_offer }}</small><input id="offer-in" type="number" inputmode="decimal" :value="st.facts.company_offer || ''" @change="setOffer($event.target.value)" placeholder="没开价就空着"></label>
+        <template v-if="offerCmp">
+          <div class="cmp"><span class="grow">按法律能要</span><b>{{ E.yuan(offerCmp.legal) }} 元</b></div>
+          <div v-if="offerCmp.conservative != null" class="cmp"><span class="grow">按保守口径</span><b>{{ E.yuan(offerCmp.conservative) }} 元</b></div>
+          <div class="cmp"><span class="grow">公司给的</span><b>{{ E.yuan(offerCmp.offer) }} 元</b></div>
+          <div class="cmp"><b class="grow">{{ offerCmp.gap > 0 ? '比法律能要的少' : '不少于法律能要的' }}</b><b :style="{color: offerCmp.gap > 0 ? 'var(--dispute)' : 'var(--solid)'}">{{ offerCmp.gap > 0 ? E.yuan(offerCmp.gap) + ' 元' : '' }}</b></div>
+          <p class="sub">离职协议签了字，之后再要差额通常很难，除非能证明受了欺诈、胁迫，或者协议明显不公平。没想清楚可以先不签。</p>
+        </template>
+        <p v-else class="sub">签离职协议之前，填上公司给的钱，我帮你和法律能要的数对一对。</p>
       </section>
       <section v-if="codeRiskList.length || (st.aiRisks && st.aiRisks.list.length) || ui.riskBusy || record.user_words.length" class="card stack" id="risks">
         <h2>风险提醒</h2>
@@ -450,13 +505,14 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
           <template v-if="st.negotiation.script"><b>开场可以这样说</b><div class="calc-line"><span class="grow" style="white-space:pre-wrap">{{ st.negotiation.script }}</span><button class="btn plain" @click="copyText(st.negotiation.script)">复制</button></div></template>
           <b>注意</b>
           <ul class="stack" style="margin:0;padding-left:1.2em">
-            <li v-if="negoDeadline">协商期间仲裁时效照常计算，谈不拢最晚 {{ negoDeadline }} 前要申请仲裁（代码按离职日算）。</li>
+            <li v-if="negoDeadline">协商期间仲裁时效照常计算，谈不拢最晚 {{ negoDeadline }} 前要申请仲裁（代码按离职日算）。<button id="dl-limit-ics" class="btn plain" @click="saveDeadlineIcs">加到手机日历</button></li>
             <li v-for="(t, i) in st.negotiation.cautions" :key="i">{{ t }}</li>
           </ul>
           <p v-if="negoStale" class="sub">案件信息有变化，可以重新生成。</p>
         </template>
         <button v-if="negoMoney && (!st.negotiation || negoStale)" id="gen-nego" class="btn ghost" :disabled="ui.negoBusy" @click="genNegotiation">{{ ui.negoBusy ? '正在准备…' : (st.negotiation ? '重新生成' : '帮我准备谈的要点') }}</button>
       </section>
+      <p class="sub promise">有依据：每笔金额都列出公式和规则版本。可撤回：记录随时能删。不越界：不预测输赢，不代替律师和仲裁委。</p>
       <button class="btn block" @click="go('P5')">补正证据和细节</button>
     </template>
 

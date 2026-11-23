@@ -223,7 +223,10 @@
     { step: '不服起诉或申请执行', time: '收到裁决书 15 日内起诉', note: '每项都不超过当地月最低工资 12 倍的属终局裁决，单位只能 30 日内向中级法院申请撤销' },
   ];
 
-  const api = { OK, RECHECK, DISPUTED, LAWS, PARAMS, CLAIMS, CORE_FACTS, PREREQUISITES, ROUTES, TIER_RULES, EVIDENCE, EVIDENCE_TIP, DEFENSES, PATH };
+  // 规则版本：改动金额规则、地区参数时更新，结果页展示
+  const VERSION = '2026.11.23';
+
+  const api = { VERSION, OK, RECHECK, DISPUTED, LAWS, PARAMS, CLAIMS, CORE_FACTS, PREREQUISITES, ROUTES, TIER_RULES, EVIDENCE, EVIDENCE_TIP, DEFENSES, PATH };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.LA = Object.assign(root.LA || {}, { rules: api });
 })(this);

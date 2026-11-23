@@ -38,6 +38,7 @@ company_name: 字符串
 labor_proof: social|payroll|badge|chat|none（没签合同时，能证明劳动关系的最有力材料：社保记录 / 单位账户发的工资流水 / 工牌工作证或考勤 / 只有工作群聊天 / 都没有）
 applicant_name / applicant_gender(男|女) / applicant_phone / applicant_id_no / applicant_address: 劳动者本人的姓名、性别、电话、身份证号、住址（用户说了才输出）
 company_address / legal_rep: 公司地址、法定代表人姓名（用户说了才输出）
+company_offer: 公司提出给劳动者的补偿或赔偿总金额（数字，元）；只在用户说了公司开的价时输出，用户自己想要的金额不算
 user_claims: 数组，用户自己已经得出的主张（比如问过别的 AI 或律师），每项 {"claim": illegal_termination（违法解除赔偿金/2N）|economic_compensation（经济补偿/N）|notice_pay（代通知金/N+1 里的 1）|double_wage（未签合同二倍工资）|unpaid_wages（拖欠工资）|reinstatement（恢复劳动关系）, "amount": 用户自己说的金额数字或 null}；用户没提自己的主张就不输出
 other_issues: 数组，可含 overtime|annual_leave|social_insurance|work_injury（受伤、工伤、职业病）|platform_work（外卖骑手、网约车等平台接单，或外包）|dispatch（劳务派遣）|subcontract（挂靠、包工头、违法转包分包）`;
 
@@ -179,6 +180,10 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
   // ---------- 状态 ----------
   const STORE = 'la-cases-v1';
   function loadCases() { try { return JSON.parse(localStorage.getItem(STORE) || '[]'); } catch (e) { return []; } }
+  // 个人信息告知同意（个保法第 14、17、29 条）：一般同意 + 身份证号等敏感信息单独同意；撤回即清除本机数据
+  const PRIVACY = 'la_privacy_v1';
+  function loadPrivacy() { try { return JSON.parse(localStorage.getItem(PRIVACY) || 'null') || { ok: false, sensitive: false }; } catch (e) { return { ok: false, sensitive: false }; } }
+  function savePrivacy(p) { try { localStorage.setItem(PRIVACY, JSON.stringify(p)); } catch (e) { } }
   function saveCases(list) { try { localStorage.setItem(STORE, JSON.stringify(list)); } catch (e) { } }
 
   function blankCase() {
@@ -203,7 +208,8 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
   createApp({
     setup() {
       const st = reactive(blankCase());
-      const ui = reactive({ reply: '', busy: false, drawer: false, cases: loadCases(), tab: 'detail', missing: [], focusQ: '', supp: '', evBusy: false, exportText: '', editing: false, toast: '', qaOpen: false, qaInput: '', qaBusy: false, recText: '', recBusy: false, recQuotes: [], recPick: {}, dictating: false, dictPartial: '', canDictate: false, riskBusy: false, hearBusy: false, negoBusy: false, delId: '', renameId: '', renameText: '', dictTarget: 'rec', attachOpen: false });
+      const ui = reactive({ reply: '', busy: false, drawer: false, cases: loadCases(), tab: 'detail', missing: [], focusQ: '', supp: '', evBusy: false, exportText: '', editing: false, toast: '', qaOpen: false, qaInput: '', qaBusy: false, recText: '', recBusy: false, recQuotes: [], recPick: {}, dictating: false, dictPartial: '', canDictate: false, riskBusy: false, hearBusy: false, negoBusy: false, delId: '', renameId: '', renameText: '', dictTarget: 'rec', attachOpen: false, privacy: loadPrivacy(), privacyOpen: false, sensChk: false, sensAsk: null, privacyNo: false });
+      ui.privacyOpen = !ui.privacy.ok;
       let dictObj = null;
       dictationPromise.then(d => { dictObj = d; ui.canDictate = !!d; });
 
@@ -453,6 +459,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       // ---------- 上传与识别 ----------
       const files = reactive({});          // 本次打开页面上传的文件，只在内存里，刷新后不保留
       function upload(kind, tag, slot) {
+        if (kind === 'id_card' && !ui.privacy.sensitive) { ui.sensAsk = () => upload(kind, tag, slot); return; }
         const inp = document.createElement('input');
         inp.type = 'file'; inp.multiple = true;
         inp.accept = imgCaps.ok ? imgCaps.accept + ',application/pdf' : 'image/*,application/pdf';
@@ -487,8 +494,8 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
         try { const b = await crypto.subtle.digest('SHA-256', await f.arrayBuffer()); return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join(''); } catch (e) { return f.name + f.size; }
       }
       async function recognize(kind, tag, slot, list) {
-        const fresh = [];
-        for (const f of list) { const h = await hashOf(f); if (!st.hashes.includes(h)) { st.hashes.push(h); fresh.push(f); } }
+        const fresh = [], added = [];
+        for (const f of list) { const h = await hashOf(f); if (!st.hashes.includes(h)) { st.hashes.push(h); added.push(h); fresh.push(f); } }
         if (!fresh.length) {
           const dup = { tag: tag || '材料', kind, ticked: false, at: new Date().toISOString(), filled: [], conflicts: [], keys: [], confirmed: false, note: `和之前传过的文件一模一样，已跳过：${list.map(f => f.name).join('、')}`, busy: false, dup: true, file: list.map(f => f.name).join('、') };
           st.recognized.unshift(dup);
@@ -512,6 +519,11 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
             kind = D.KINDS[data && data.kind] ? data.kind : 'other';
             tag = ALL_EVIDENCE.includes(data && data.tag) ? data.tag : D.KINDS[kind].title;
             r.kind = kind; r.tag = tag;
+            if (kind === 'id_card' && !ui.privacy.sensitive) {
+              st.hashes = st.hashes.filter(h => !added.includes(h));
+              r.busy = false; r.note = '这是身份证。读取身份证号需要你单独同意，在证据页点「你的身份证」同意后再传，申请书会自动填好。';
+              return r;
+            }
             if (ALL_EVIDENCE.includes(tag)) r.ticked = tickEvidence([tag]).length > 0;
             if (data && data.summary && !/元/.test(data.summary)) r.note = String(data.summary);
           }
@@ -660,10 +672,10 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
         try { await dl.save({ filename: '证据文件（按清单顺序）.zip', data: await zip.generateAsync({ type: 'blob' }) }); flash('已交给浏览器保存'); }
         catch (e) { if (!(e && e.code === 'declined')) flash('打包下载没有成功'); }
       }
-      async function saveIcs() {
-        const text = P.ics(events.value, '劳动仲裁');
+      async function saveIcs(list, filename) {
+        const text = P.ics(Array.isArray(list) ? list : events.value, '劳动仲裁');
         const dl = window.claude && window.claude.use ? await window.claude.use('downloads').catch(() => null) : null;
-        if (dl) { try { await dl.save({ filename: '劳动仲裁时间线.ics', data: new Blob([text], { type: 'text/calendar' }) }); flash('已交给浏览器保存，用手机日历打开即可提醒'); return; } catch (e) { if (e && e.code === 'declined') return; } }
+        if (dl) { try { await dl.save({ filename: typeof filename === 'string' ? filename : '劳动仲裁时间线.ics', data: new Blob([text], { type: 'text/calendar' }) }); flash('已交给浏览器保存，用手机日历打开即可提醒'); return; } catch (e) { if (e && e.code === 'declined') return; } }
         ui.exportText = text;
       }
       // 当事人信息是否已齐（证据页传身份证、营业执照后自动填）
@@ -676,6 +688,30 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       const fillHint = m => /^申请人(姓名|性别|身份证号|住址)$/.test(m) ? '在证据页传身份证可自动填写' : /^被申请人/.test(m) ? '在证据页传营业执照或劳动合同可自动填写' : '';
       // 识别卡上点「对」：这份材料读出的参数转为已确认
       function confirmRec(r) { for (const k of r.keys || []) delete st.pending[k]; r.confirmed = true; }
+
+      function agreePrivacy() { ui.privacy = { ok: true, sensitive: ui.sensChk, at: new Date().toISOString() }; savePrivacy(ui.privacy); ui.privacyOpen = false; ui.privacyNo = false; }
+      function agreeSensitive() { ui.privacy = { ...ui.privacy, sensitive: true }; savePrivacy(ui.privacy); const f = ui.sensAsk; ui.sensAsk = null; if (f) f(); }
+      function withdrawPrivacy() {
+        clearTimeout(persistTimer); persistTimer = null;
+        saveCases([]); try { localStorage.removeItem(PRIVACY); } catch (e) { }
+        ui.cases = []; Object.assign(st, blankCase());
+        ui.privacy = { ok: false, sensitive: false }; ui.sensChk = false; ui.privacyOpen = true; ui.drawer = false;
+        flash('已撤回同意，本机的案件记录已全部清除');
+      }
+      function setOffer(v) { const n = +String(v).replace(/[,，元\s]/g, ''); if (n > 0) { st.facts.company_offer = n; st.sources.company_offer = '你在测算页填的'; st.manual.company_offer = true; } else { delete st.facts.company_offer; delete st.manual.company_offer; } }
+      // 公司开价 vs 法定金额：差额由代码算
+      const offerCmp = computed(() => {
+        const o = +st.facts.company_offer;
+        if (!(o > 0) || pendingKeys.value.length || !totals.value.total) return null;
+        return { offer: o, legal: totals.value.total, conservative: totals.value.conservative !== totals.value.total ? totals.value.conservative : null, gap: totals.value.total - o };
+      });
+      const SHARE_URL = 'https://claude.ai/artifact/JrxuKu61QJL81aLoFQqM44';
+      const SHARE_TEXT = '帮一个朋友，少走一次弯路：劳动仲裁助手，说说发生了什么，就能算出能要多少钱、帮你写好仲裁申请书。';
+      async function shareApp() {
+        if (navigator.share) { try { await navigator.share({ title: '劳动仲裁助手', text: SHARE_TEXT, url: SHARE_URL }); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
+        copyText(SHARE_TEXT + ' ' + SHARE_URL);
+      }
+      function saveDeadlineIcs() { saveIcs([{ key: 'limit', date: negoDeadline.value, title: '仲裁时效最后一天', note: '谈不拢也要在这天之前向仲裁委申请仲裁' }], '仲裁时效提醒.ics'); }
 
       function go(p) {
         const g = gate.value[p];
@@ -957,6 +993,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
         total: E.yuan(totals.value.total) + ' 元',
         conservative: totals.value.conservative !== totals.value.total ? E.yuan(totals.value.conservative) + ' 元' : null,
         items: chosen.value.filter(c => c.calc && c.calc.amount != null).map(c => ({ title: c.title, amount: E.yuan(c.calc.amount) + ' 元', tier: c.tier })),
+        ...(offerCmp.value ? { company_offer: E.yuan(offerCmp.value.offer) + ' 元', gap: offerCmp.value.gap > 0 ? '比法定少 ' + E.yuan(offerCmp.value.gap) + ' 元' : '不少于法定金额' } : {}),
       }));
       const negoDeadline = computed(() => { const l = analysis.value.limitation; return l && l.deadline && !l.expired ? l.deadline : null; });
       async function genNegotiation() {
@@ -976,8 +1013,8 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
 
       function flash(t) { ui.toast = t; setTimeout(() => { ui.toast = ''; }, 2500); }
 
-      const examples = ['被辞退', '拖欠工资', '没签合同', '加班没给钱', '没交社保'];
-      const EXAMPLE_TEXT = { 被辞退: '我被公司辞退了，', 拖欠工资: '公司拖欠我工资，', 没签合同: '公司一直没和我签劳动合同，', 加班没给钱: '经常加班但公司没给加班费，', 没交社保: '公司没给我交社保，' };
+      const examples = ['被辞退', '公司让签协议', '拖欠工资', '没签合同', '加班没给钱', '没交社保'];
+      const EXAMPLE_TEXT = { 被辞退: '我被公司辞退了，', 公司让签协议: '公司让我签离职协议，给的补偿是', 拖欠工资: '公司拖欠我工资，', 没签合同: '公司一直没和我签劳动合同，', 加班没给钱: '经常加班但公司没给加班费，', 没交社保: '公司没给我交社保，' };
       function useExample(k) { ui.reply += EXAMPLE_TEXT[k]; }
       function fillSample() { ui.reply = '在苏州做了3年4个月仓库主管，月薪9000，上个月被口头通知明天别来了，没给理由，没签过劳动合同，工资每月微信转账'; }
 
@@ -986,7 +1023,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       const stdOrigin = k => { const w = stdOf(st.facts.city, st.avgWage, st.minWage); return w ? w.origin[k] : '待补'; };
       const pct = k => totals.value.total ? (totals.value[k] / totals.value.total * 100) + '%' : '0%';
 
-      return { genHearing, hearingStale, negoMoney, negoDeadline, genNegotiation, negoStale, record, kbEntries, askQA, QA_CHIPS, evTimeline, toggleDictation, extractQuotes, confirmQuotes, codeRiskList, checkRisks, risksStale, st, ui, R, E, F, G, PAGES, model, allCities, std, stdCity, stdOrigin, imgCaps, files, upload, kindOfTag: D.kindOfTag, analysis, chosen, conflicts, totals, next, prog, factRows, evidenceGroups, arbitration,
+      return { agreePrivacy, agreeSensitive, withdrawPrivacy, setOffer, offerCmp, shareApp, saveDeadlineIcs, genHearing, hearingStale, negoMoney, negoDeadline, genNegotiation, negoStale, record, kbEntries, askQA, QA_CHIPS, evTimeline, toggleDictation, extractQuotes, confirmQuotes, codeRiskList, checkRisks, risksStale, st, ui, R, E, F, G, PAGES, model, allCities, std, stdCity, stdOrigin, imgCaps, files, upload, kindOfTag: D.kindOfTag, analysis, chosen, conflicts, totals, next, prog, factRows, evidenceGroups, arbitration,
         answer, pick, notSure, editFact, toAnalysis, pendingKeys, confirmParams, gate, supplement, organizeEvidence, evItems, src, resolveAsk, confirmRec, guideQs, fillHint, suggestMiss, partyMissing, partyDone, claimCheck, uploadInChat, eligible, institution, platformSteps, copyText, saveEvidenceZip, copyCount, materialList, checkItems, events, limitNear, mailRisky, triageOn, uploadReceipt, saveIcs, serviceAddressDoc, powerOfAttorneyDoc, printListDoc, printPackage, hasRecording, reasonProblems, appFormat, W, toggleClaim, toggleEvidence, go, newCase, openCase, deleteCase, startRename, renameCase, appNext, exportApp, draft, requestLines,
         save, evidenceDoc, applicationDoc, examples, useExample, fillSample, tierClass, statusClass, pct, display, labelOf, today };
     },
