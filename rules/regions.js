@@ -145,6 +145,7 @@
       jurisdiction: GD_FORMAT.jurisdiction + '在省里登记、注册资本 2 亿元以上的企业归广东省劳动人事争议调解仲裁院（越秀区教育路88号，020-83352251）。',
       triage: { question: '单位是不是在市里登记、注册资金 3000 万元以上、外地企业，或者市属事业单位？',
         districts: ['越秀', '海珠', '荔湾', '天河', '白云', '花都', '番禺'],
+        yes_note: '如果单位是在广东省市场监管局登记、注册资本 2 亿元以上的大企业，或是中直、省直单位，应向广东省劳动人事争议调解仲裁院申请（越秀区教育路88号，020-83352251）。',
         yes: { name: '广州市劳动人事争议仲裁院', ...GZ('天河区龙口西路穗园东街21号之一（智能立案大厅）、之二（人工立案大厅）', '020-22044515') } },
       triage_skip_note: '工作地在黄埔、南沙、增城、从化的，不管单位规模都归该区仲裁委。',
       online: { name: '广州劳动人事争议网上平台（网上预受理）', url: 'http://gzlss.rsj.gz.gov.cn/cas/login' },
@@ -193,7 +194,8 @@
     return out;
   }
 
-  CITY_OVERRIDES['深圳'].local_notes = { double_wage: '深圳中院裁判指引第66条：补订劳动合同不免除补订前的二倍工资；但劳动者同意合同往前溯及的，视为放弃。' };
+  CITY_OVERRIDES['深圳'].local_notes = { double_wage: '深圳中院裁判指引第66条：补订劳动合同不免除补订前的二倍工资；但劳动者同意合同往前溯及的，视为放弃。',
+    defenses: { '是你自己拒签': '深圳中院裁判指引第64条：即使你拒签，单位没有在法定期限内书面终止劳动关系的，仍要支付二倍工资。' } };
 
   const api = { PROVINCES, PROVINCE_DEFAULTS, CITY_OVERRIDES, provinceOf, standardsFor };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

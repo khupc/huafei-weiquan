@@ -364,7 +364,7 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
         <h2>对方可能会这样说</h2>
         <div v-for="c in chosen" :key="c.id" class="stack">
           <h3 v-if="c.defenses.length">{{ c.title }}</h3>
-          <div v-for="(d, i) in c.defenses" :key="i" class="calc-line"><b>「{{ d.says }}」</b><span class="formula">你可以准备：{{ d.prepare }}</span></div>
+          <div v-for="(d, i) in c.defenses" :key="i" class="calc-line"><b>「{{ d.says }}」</b><span class="formula">你可以准备：{{ d.prepare }}</span><span v-if="std && std.local_notes && std.local_notes.defenses && std.local_notes.defenses[d.says]" class="formula">{{ stdCity }}口径：{{ std.local_notes.defenses[d.says] }}</span></div>
         </div>
         <p class="sub">看到这些想起什么，不用一条条对应，下一步在证据页直接说就行，我会重新分析。</p>
       </section>
@@ -553,6 +553,7 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
         <template v-if="institution">
           <p class="sub">窗口：{{ institution.address }}<template v-if="institution.phone"><br>电话：{{ institution.phone }}</template><template v-if="institution.hours"><br>办公时间（法定工作日）：{{ institution.hours }}</template><template v-if="!institution.phone"><br>电话和办公时间还没核实，请拨打 {{ appFormat.hotline || '12333' }} 查询。</template><template v-else-if="!institution.hours"><br>官方页面没列接待时间，去之前先打电话问。</template></p>
           <p v-if="institution.pending" class="warn">待核，去之前先打电话确认。</p>
+          <p v-if="triageOn && st.facts.city_level === 'yes' && appFormat.triage.yes_note" class="sub">{{ appFormat.triage.yes_note }}</p>
           <p class="sub">来源：{{ institution.source }}，核对日期 {{ institution.checked }}。窗口信息会变动，出发前先打电话确认。</p>
         </template>
         <p class="sub" v-else-if="appFormat.districts && st.facts.district">这个区的窗口信息还没核实，请拨打 {{ appFormat.hotline || '12333' }} 查询。</p>
