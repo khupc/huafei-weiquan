@@ -139,6 +139,7 @@
   if (PROVINCE_DEFAULTS['广东省']) PROVINCE_DEFAULTS['广东省'].application_format = GD_FORMAT;
   // 浙江、江苏、四川、重庆（律师线程校准文档 7.11–7.15，核对日期 2026-11-23）：官方页面大多抓取失败，程序部分先按全国默认，窗口待核
   const PENDING = '（待核：只有转载，未见官方原文）';
+  const ONLINE_UNKNOWN = '是否支持网上提交请先拨打当地 12333 确认；默认到窗口提交，可委托他人代交。';
   const nullDistricts = list => Object.fromEntries(list.map(d => [d, null]));
   const setProv = (prov, fields) => { if (PROVINCE_DEFAULTS[prov]) Object.assign(PROVINCE_DEFAULTS[prov], fields); };
   setProv('浙江省', {
@@ -146,8 +147,8 @@
     local_notes: { double_wage: '浙江解答（一）第1题：工伤停工留薪期、产假哺乳假、病假期间等确实不能归责于单位而没签合同的，不支持二倍工资' + PENDING },
     application_format: { ...DEFAULT_APP_FORMAT,
       copy_rule: { plus: 1, keep: 1, source: '沿用北京口径，待核' },
-      online: { name: '浙江劳动人事争议调解仲裁网络平台（待核）', url: 'http://tjzcfw.rlsbt.zj.gov.cn/tjzc/#online-hall' },
-      online_note: '手机上可以在浙里办搜「人社服务专区」→「劳动人事争议调解仲裁网络平台」。能不能全程网上立案、要不要再交纸质材料还没核实（来源为 2022 年第三方汇总）。',
+      online: { name: '浙江劳动人事争议调解仲裁网络平台（可能已调整）', url: 'http://tjzcfw.rlsbt.zj.gov.cn/tjzc/#online-hall' },
+      online_note: '手机上可以在浙里办搜「人社服务专区」→「劳动人事争议调解仲裁网络平台」（可能已调整）。' + ONLINE_UNKNOWN,
     } });
   setProv('江苏省', {
     local_notes: { defenses: { '你负责人事，签合同是你的职责': '江苏指导意见（二）第六条：单位能拿出聘任决定或聘任书并已实际履行的，高管主张二倍工资不予支持。' } },
@@ -216,10 +217,12 @@
       districts: nullDistricts(['玄武', '秦淮', '建邺', '鼓楼', '栖霞', '雨花台', '江宁', '浦口', '六合', '溧水', '高淳', '江北新区', '经开区']) } },
     苏州: { application_format: { ...PROVINCE_DEFAULTS['江苏省'].application_format,
       jurisdiction: '苏州 2021 年起试行「全市范围劳动人事争议仲裁案件全域受理」，可能在全市任一仲裁机构都能交材料，原文还没核实，去之前先打电话问。',
+      online_note: ONLINE_UNKNOWN,
       districts: nullDistricts(['姑苏', '虎丘', '吴中', '相城', '吴江', '工业园区', '常熟市', '张家港市', '昆山市', '太仓市']) } },
     成都: { application_format: { ...PROVINCE_DEFAULTS['四川省'].application_format,
       hotline: '028-12333',
       jurisdiction: '由工作地或单位所在地的区（市、县）仲裁机构管辖；成都市、区分工和网上申请入口还没核实。',
+      online_note: ONLINE_UNKNOWN,
       districts: nullDistricts(['锦江', '青羊', '金牛', '武侯', '成华', '龙泉驿', '青白江', '新都', '温江', '双流', '郫都', '新津', '简阳市', '都江堰市', '彭州市', '邛崃市', '崇州市', '金堂县', '大邑县', '蒲江县']) } },
     深圳: { application_format: { ...GD_FORMAT,
       hotline: '0755-12333',
