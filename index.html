@@ -147,6 +147,11 @@ ol.path small { color: var(--muted); display: block; }
 .risk { border-left: 3px solid var(--need); padding-left: 10px; }
 .risk.high { border-color: var(--danger); }
 .tl { display: grid; grid-template-columns: 6.5em 1fr; gap: 4px 10px; font-size: 14px; }
+.modal-mask { position: fixed; inset: 0; background: rgb(0 0 0 / .45); z-index: 40; }
+.modal { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(320px, calc(100vw - 48px)); background: var(--surface); border-radius: 16px; padding: 22px 20px 12px; z-index: 41; display: grid; gap: 10px; text-align: center; box-shadow: 0 10px 30px rgb(0 0 0 / .25); }
+.modal h3 { margin: 0; font-size: 17px; }
+.modal .sub { margin: 0 0 6px; }
+.modal-danger { background: var(--danger); border-color: var(--danger); color: #fff; border-radius: 999px; }
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(90px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 13px; z-index: 30; }
 pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padding: 10px; border-radius: 8px; max-height: 260px; overflow: auto; }
 .model { font-size: 11px; color: var(--muted); }
@@ -181,20 +186,27 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
         <b v-else>{{ c.title || ((c.city || (c.facts && c.facts.city) || '未选城市') + ' · ' + ((c.chat.find(m => m.role === 'user') || {}).text?.slice(0, 18) || '尚未描述')) }}</b><template v-if="c.id === st.id && ui.renameId !== c.id"><small class="sub">（当前）</small></template>
         <div class="case-foot">
           <span class="sub">{{ c.updated ? c.updated.slice(0, 16).replace('T', ' ') : '' }} · 停在{{ PAGES.find(p => p.id === c.page)?.name }}</span>
-          <span v-if="ui.delId === c.id" class="case-confirm" @click.stop><span class="sub">删除？</span><button class="icon-btn danger" aria-label="确认删除" title="确认删除" @click="deleteCase(c.id)"><svg viewBox="0 0 24 24"><path d="M5 12l5 5L20 7"/></svg></button><button class="icon-btn" aria-label="取消" title="取消" @click="ui.delId = ''"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></span>
-          <span v-else class="case-tools" @click.stop>
+          <span class="case-tools" @click.stop>
             <button class="icon-btn" aria-label="重命名" title="重命名" @click="startRename(c)"><svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4"/></svg></button>
             <button class="icon-btn" aria-label="删除" title="删除" @click="ui.delId = c.id"><svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12"/></svg></button>
           </span>
         </div>
       </div>
       <template v-if="ui.cases.length > 1">
-        <button v-if="ui.delId !== 'all'" class="btn plain" @click="ui.delId = 'all'">清空全部历史案件</button>
-        <button v-else class="btn" style="background:var(--danger);border-color:var(--danger)" @click="deleteCase('all')">确认清空全部（不能恢复）</button>
+        <button class="btn plain" @click="ui.delId = 'all'">清空全部历史案件</button>
       </template>
     </aside>
   </template>
 
+  <template v-if="ui.delId">
+    <div class="modal-mask" @click="ui.delId = ''"></div>
+    <div class="modal" role="alertdialog" aria-modal="true" aria-labelledby="del-title">
+      <h3 id="del-title">{{ ui.delId === 'all' ? '清空后，所有历史案件将不可恢复' : '删除后，该案件将不可恢复' }}</h3>
+      <p class="sub">只删除这台设备浏览器里的记录，已下载的文书不受影响。</p>
+      <button id="del-confirm" class="btn modal-danger" @click="deleteCase(ui.delId)">{{ ui.delId === 'all' ? '清空全部' : '删除该案件' }}</button>
+      <button class="btn plain" @click="ui.delId = ''">取消</button>
+    </div>
+  </template>
   <main class="wrap">
     <!-- 信息链冲突：会影响请求或金额的不一致，由用户选以哪个为准 -->
     <section v-for="(a, i) in st.asks" :key="a.key + i" class="card stack ask">
