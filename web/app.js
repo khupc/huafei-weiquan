@@ -188,7 +188,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       app: { applicant: { name: '', gender: '', ethnicity: '', birth: '', hukou: '', id_type: '居民身份证', id_no: '', address: '', phone: '', service_address: '', email: '' },
         respondent: { name: '', company_type: '', credit_code: '', legal_rep: '', legal_rep_title: '', address: '', office_address: '', contact: '', contact_title: '', phone: '' }, reasons: '', step: 1,
         agent: { on: false, type: 'general', name: '', gender: '', age: '', work: '', residence: '', phone: '' } },
-      qa: [], hashes: [], recordings: [], aiRisks: null,
+      qa: [], hashes: [], recordings: [], aiRisks: null, hearing: null, negotiation: null,
       checked: {}, submission: { submitted: '', receiptNo: '', accepted: '', evidenceDeadline: '', hearing: '', awardReceived: '', finalAward: false },
     };
   }
@@ -203,7 +203,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
   createApp({
     setup() {
       const st = reactive(blankCase());
-      const ui = reactive({ reply: '', busy: false, drawer: false, cases: loadCases(), tab: 'detail', missing: [], focusQ: '', supp: '', evBusy: false, exportText: '', editing: false, toast: '', qaOpen: false, qaInput: '', qaBusy: false, recText: '', recBusy: false, recQuotes: [], recPick: {}, dictating: false, dictPartial: '', canDictate: false, riskBusy: false });
+      const ui = reactive({ reply: '', busy: false, drawer: false, cases: loadCases(), tab: 'detail', missing: [], focusQ: '', supp: '', evBusy: false, exportText: '', editing: false, toast: '', qaOpen: false, qaInput: '', qaBusy: false, recText: '', recBusy: false, recQuotes: [], recPick: {}, dictating: false, dictPartial: '', canDictate: false, riskBusy: false, hearBusy: false, negoBusy: false });
       dictationPromise.then(d => { ui.canDictate = !!d; });
 
       const allCities = G.PROVINCES.flatMap(p => p.cities.map(c => ({ city: c, province: p.province })));
@@ -899,6 +899,46 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       const risksStale = computed(() => !st.aiRisks || st.aiRisks.key !== recordKey.value);
       watch(() => st.page, p => { if ((p === 'P4' || p === 'P5') && risksStale.value && record.value.user_words.length) checkRisks(); });
 
+      // 开庭准备：仲裁员可能问的问题 + 回答要点（不含金额，日期必须是记录里有的，证据只能从清单里选）
+      async function genHearing() {
+        if (ui.hearBusy) return;
+        ui.hearBusy = true;
+        try {
+          const sample = await samplePromise;
+          if (!sample) throw { code: 'no_sample' };
+          const ev = evItems.value.map(i => i.tag);
+          const defenses = chosen.value.flatMap(c => c.defenses.map(d => d.says));
+          const r = await sample.json(A.hearingPrompt(record.value, defenses, ev), { modelTier: 'default' });
+          const items = A.checkHearing(r, ev, t => !W.checkReasons(t, st.facts, record.value.user_words).length);
+          if (!items.length) throw { code: 'empty' };
+          st.hearing = { key: recordKey.value, items, at: new Date().toISOString() };
+        } catch (e) { flash(e && e.code === 'not_granted' ? '没有授权使用 Claude' : '生成没有成功，稍后再试'); }
+        ui.hearBusy = false;
+      }
+      const hearingStale = computed(() => st.hearing && st.hearing.key !== recordKey.value);
+
+      // 协商参考：金额全部来自代码（主张值、保守值、各项），模型只写怎么说；时效提醒由代码给
+      const negoMoney = computed(() => pendingKeys.value.length ? null : ({
+        total: E.yuan(totals.value.total) + ' 元',
+        conservative: totals.value.conservative !== totals.value.total ? E.yuan(totals.value.conservative) + ' 元' : null,
+        items: chosen.value.filter(c => c.calc && c.calc.amount != null).map(c => ({ title: c.title, amount: E.yuan(c.calc.amount) + ' 元', tier: c.tier })),
+      }));
+      const negoDeadline = computed(() => { const l = analysis.value.limitation; return l && l.deadline && !l.expired ? l.deadline : null; });
+      async function genNegotiation() {
+        if (ui.negoBusy || !negoMoney.value) return;
+        ui.negoBusy = true;
+        try {
+          const sample = await samplePromise;
+          if (!sample) throw { code: 'no_sample' };
+          const money = negoMoney.value;
+          const r = A.checkNegotiation(await sample.json(A.negotiationPrompt(record.value, money), { modelTier: 'default' }), money);
+          if (!r) throw { code: 'empty' };
+          st.negotiation = { key: recordKey.value + JSON.stringify(money), ...r, at: new Date().toISOString() };
+        } catch (e) { flash(e && e.code === 'not_granted' ? '没有授权使用 Claude' : '生成没有成功，稍后再试'); }
+        ui.negoBusy = false;
+      }
+      const negoStale = computed(() => st.negotiation && negoMoney.value && st.negotiation.key !== recordKey.value + JSON.stringify(negoMoney.value));
+
       function flash(t) { ui.toast = t; setTimeout(() => { ui.toast = ''; }, 2500); }
 
       const examples = ['被辞退', '拖欠工资', '没签合同', '加班没给钱', '没交社保'];
@@ -911,7 +951,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       const stdOrigin = k => { const w = stdOf(st.facts.city, st.avgWage, st.minWage); return w ? w.origin[k] : '待补'; };
       const pct = k => totals.value.total ? (totals.value[k] / totals.value.total * 100) + '%' : '0%';
 
-      return { record, kbEntries, askQA, QA_CHIPS, evTimeline, toggleDictation, extractQuotes, confirmQuotes, codeRiskList, checkRisks, risksStale, st, ui, R, E, F, G, PAGES, model, allCities, std, stdCity, stdOrigin, imgCaps, files, upload, kindOfTag: D.kindOfTag, analysis, chosen, conflicts, totals, next, prog, factRows, evidenceGroups, arbitration,
+      return { genHearing, hearingStale, negoMoney, negoDeadline, genNegotiation, negoStale, record, kbEntries, askQA, QA_CHIPS, evTimeline, toggleDictation, extractQuotes, confirmQuotes, codeRiskList, checkRisks, risksStale, st, ui, R, E, F, G, PAGES, model, allCities, std, stdCity, stdOrigin, imgCaps, files, upload, kindOfTag: D.kindOfTag, analysis, chosen, conflicts, totals, next, prog, factRows, evidenceGroups, arbitration,
         answer, pick, notSure, editFact, toAnalysis, pendingKeys, confirmParams, gate, supplement, organizeEvidence, evItems, src, resolveAsk, confirmRec, guideQs, fillHint, suggestMiss, partyMissing, partyDone, claimCheck, uploadInChat, eligible, institution, platformSteps, copyText, saveEvidenceZip, copyCount, materialList, checkItems, events, limitNear, mailRisky, triageOn, uploadReceipt, saveIcs, serviceAddressDoc, powerOfAttorneyDoc, printListDoc, printPackage, hasRecording, reasonProblems, appFormat, W, toggleClaim, toggleEvidence, go, newCase, openCase, appNext, exportApp, draft, requestLines,
         save, evidenceDoc, applicationDoc, examples, useExample, fillSample, tierClass, statusClass, pct, display, labelOf, today };
     },

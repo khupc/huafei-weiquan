@@ -383,6 +383,23 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
         </div>
         <p class="sub">看到这些想起什么，不用一条条对应，下一步在证据页直接说就行，我会重新分析。</p>
       </section>
+      <section class="card stack" id="negotiation">
+        <h2>想先和公司谈？</h2>
+        <p class="sub">我帮你准备谈的时候提什么、怎么开口。金额都用上面代码算出的数，不会替你决定接受多少。</p>
+        <p v-if="!negoMoney" class="sub">先在测算页确认参数，算出金额后再准备。</p>
+        <template v-else-if="st.negotiation">
+          <b>可以提的要求</b>
+          <ol class="stack" style="margin:0;padding-left:1.2em"><li v-for="(t, i) in st.negotiation.points" :key="i">{{ t }}</li></ol>
+          <template v-if="st.negotiation.script"><b>开场可以这样说</b><div class="calc-line"><span class="grow" style="white-space:pre-wrap">{{ st.negotiation.script }}</span><button class="btn plain" @click="copyText(st.negotiation.script)">复制</button></div></template>
+          <b>注意</b>
+          <ul class="stack" style="margin:0;padding-left:1.2em">
+            <li v-if="negoDeadline">协商期间仲裁时效照常计算，谈不拢最晚 {{ negoDeadline }} 前要申请仲裁（代码按离职日算）。</li>
+            <li v-for="(t, i) in st.negotiation.cautions" :key="i">{{ t }}</li>
+          </ul>
+          <p v-if="negoStale" class="sub">案件信息有变化，可以重新生成。</p>
+        </template>
+        <button v-if="negoMoney && (!st.negotiation || negoStale)" id="gen-nego" class="btn ghost" :disabled="ui.negoBusy" @click="genNegotiation">{{ ui.negoBusy ? '正在准备…' : (st.negotiation ? '重新生成' : '帮我准备谈的要点') }}</button>
+      </section>
       <button class="btn block" @click="go('P5')">补正证据和细节</button>
     </template>
 
@@ -665,6 +682,20 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
         <ol class="path"><li v-for="e in events" :key="e.key"><b>{{ e.date || '待定' }} · {{ e.title }}</b><small>{{ e.note }}（{{ e.law }}）</small></li></ol>
         <button v-if="events.length" id="dl-ics" class="btn ghost block" @click="saveIcs">下载到手机日历（提前一天提醒）</button>
         <p class="sub">整个仲裁不收费。调解书双方签收即生效；签之前确认金额和付款时间写清楚。</p>
+      </section>
+      <section class="card stack" id="hearing">
+        <h2>开庭准备</h2>
+        <p class="sub">按你的案件材料，列出仲裁员最可能问你的问题和回答要点。回答只用你说过、传过的事实，记不清的如实说。</p>
+        <template v-if="st.hearing">
+          <div v-for="(h, i) in st.hearing.items" :key="i" class="calc-line stack">
+            <b>{{ i + 1 }}. {{ h.q }}</b>
+            <span v-if="h.why" class="formula">为什么问：{{ h.why }}</span>
+            <span v-for="(p, j) in h.points" :key="j" class="formula">· {{ p }}</span>
+            <span v-if="h.evidence.length" class="formula">可以出示：{{ h.evidence.join('、') }}</span>
+          </div>
+          <p v-if="hearingStale" class="sub">案件信息有变化，可以重新生成。</p>
+        </template>
+        <button v-if="!st.hearing || hearingStale" id="gen-hearing" class="btn ghost" :disabled="ui.hearBusy" @click="genHearing">{{ ui.hearBusy ? '正在准备…' : (st.hearing ? '重新生成' : '生成开庭问答') }}</button>
       </section>
     </template>
 

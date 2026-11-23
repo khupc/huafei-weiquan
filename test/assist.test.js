@@ -41,3 +41,22 @@ test('证据时间线：按材料日期排，读不到日期的放最后，重�
   const tl = A.evidenceTimeline([{ tag: 'B', doc_date: '2026-10-01' }, { tag: 'C' }, { tag: 'A', doc_date: '2023-06' }, { tag: 'D', doc_date: '2024-01-01', dup: true }]);
   assert.deepStrictEqual(tl.map(x => x.tag), ['A', 'B', 'C']);
 });
+
+test('开庭准备：去掉带金额的要点和清单外的证据', () => {
+  const r = A.checkHearing({ items: [{ q: '你哪天入职的？', why: '确认工作年限', points: ['2023 年 6 月 1 日入职', '月薪 9000 元'], evidence: ['劳动合同', '工资条', '编的证据'] }] }, ['劳动合同', '工资条']);
+  assert.deepStrictEqual(r[0].points, ['2023 年 6 月 1 日入职']);
+  assert.deepStrictEqual(r[0].evidence, ['劳动合同', '工资条']);
+});
+
+test('协商参考：只能用代码给的金额，不许给折扣', () => {
+  const money = { total: '171,000 元', items: [{ title: '违法解除', amount: '63,000 元' }] };
+  const n = A.checkNegotiation({ points: ['按法律算，违法解除赔偿是 63,000 元', '可以接受 5 万元', '打八折也行'], script: '我想和公司谈一下离职补偿。', cautions: ['谈的过程留好记录'] }, money);
+  assert.deepStrictEqual(n.points, ['按法律算，违法解除赔偿是 63,000 元']);
+  assert.ok(n.script);
+  assert.strictEqual(A.checkNegotiation({ points: ['给 99 元'] }, money), null);
+});
+
+test('金额按数值核对：数字碎片撞上不算', () => {
+  assert.deepStrictEqual(A.moneyOutside('可以接受 3 万元', '{"total":"171,000 元","c":"37,500 元"}'), ['3 万元']);
+  assert.deepStrictEqual(A.moneyOutside('一共 17.1 万元', '{"total":"171,000 元"}'), []);
+});

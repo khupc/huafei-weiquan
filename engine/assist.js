@@ -49,10 +49,12 @@
   // 模型回答里出现的金额（数字 + 元/万）必须在给它的材料里出现过，否则判为编造
   const MONEY = /(\d[\d,，.]*)\s*(万元|万|元|块)/g;
   const norm = s => String(s).replace(/[,，\s]/g, '');
+  // 按数值比：「3 万元」= 30000，必须等于材料里出现过的某个金额
+  const valueOf = m => { const v = parseFloat(norm(m[1])); return /万/.test(m[2]) ? Math.round(v * 10000) : v; };
   function moneyOutside(text, allowed) {
-    const pool = norm(allowed);
+    const pool = new Set([...String(allowed || '').matchAll(MONEY)].map(valueOf));
     const bad = [];
-    for (const m of String(text || '').matchAll(MONEY)) if (!pool.includes(norm(m[1]))) bad.push(m[0]);
+    for (const m of String(text || '').matchAll(MONEY)) if (!pool.has(valueOf(m))) bad.push(m[0]);
     return bad;
   }
   function checkAnswer(r, entries, ctx) {
@@ -121,7 +123,52 @@
       .map(x => ({ a: String(x.a).slice(0, 80), b: String(x.b).slice(0, 80), tip: String(x.tip).slice(0, 80) }));
   }
 
-  const api = { FAQ, kb, qaPrompt, moneyOutside, checkAnswer, evidenceTimeline, transcriptPrompt, checkQuotes, codeRisks, riskPrompt, checkRisks };
+  // ---------- 开庭准备 ----------
+  // 输入的记录不含金额；输出每题的回答要点也不许有金额，提到的证据必须是清单里有的
+  function hearingPrompt(record, defenses, evidence) {
+    return `你在帮劳动者准备劳动仲裁开庭。根据案件记录，列出仲裁员最可能问他的问题，最多 8 个，按开庭顺序（身份和入职 → 工作和工资 → 怎么离职的 → 各项请求 → 证据）。
+每题写：q（问题，口语）；why（仲裁员为什么问，20 字以内）；points（回答要点 1–3 条，每条 30 字以内，只用记录里有的事实，记录里没有的写「如实说明，记不清就说记不清」）；evidence（回答时可以出示的证据，只能从证据清单里选）。
+对方可能的说法也要准备：${JSON.stringify(defenses)}
+不要写金额，不要编日期，不做法律定性。
+证据清单：${JSON.stringify(evidence)}
+案件记录：${JSON.stringify(record)}
+只输出 JSON：{"items": [{"q": "...", "why": "...", "points": ["..."], "evidence": ["..."]}]}`;
+  }
+  const hasMoney = t => /\d\s*(元|万|块)/.test(String(t || ''));
+  function checkHearing(r, evidence, okText) {
+    const ev = new Set(evidence || []);
+    return (r && Array.isArray(r.items) ? r.items : [])
+      .filter(x => x && typeof x.q === 'string' && x.q.trim())
+      .slice(0, 8)
+      .map(x => ({
+        q: x.q.trim().slice(0, 60),
+        why: hasMoney(x.why) ? '' : String(x.why || '').slice(0, 40),
+        points: (Array.isArray(x.points) ? x.points : []).map(String).filter(t => t.trim() && !hasMoney(t) && (!okText || okText(t))).slice(0, 3).map(t => t.slice(0, 60)),
+        evidence: (Array.isArray(x.evidence) ? x.evidence : []).filter(e => ev.has(e)),
+      }));
+  }
+
+  // ---------- 协商参考 ----------
+  // 金额只能来自 money（代码算好的主张值、保守值、各项金额）；模型只写怎么说
+  function negotiationPrompt(record, money) {
+    return `劳动者想先和公司协商，再决定是否仲裁。请帮他准备：points（可以提的要求和理由，3–5 条，每条 40 字以内）；script（开场怎么说，100 字以内，语气平和、坚定）；cautions（谈的时候注意什么，2–3 条，30 字以内）。
+金额只能原样使用下面「代码算好的金额」里的数字，不要自己算、不要给折扣比例、不要建议接受多少。
+代码算好的金额：${JSON.stringify(money)}
+案件记录：${JSON.stringify(record)}
+只输出 JSON：{"points": ["..."], "script": "...", "cautions": ["..."]}`;
+  }
+  function checkNegotiation(r, money) {
+    if (!r) return null;
+    const allowed = JSON.stringify(money);
+    const clean = t => typeof t === 'string' && t.trim() && !moneyOutside(t, allowed).length && !/[折%％]|成左右/.test(t);
+    const points = (Array.isArray(r.points) ? r.points : []).filter(clean).slice(0, 5);
+    const cautions = (Array.isArray(r.cautions) ? r.cautions : []).filter(clean).slice(0, 3);
+    const script = clean(r.script) ? r.script.trim().slice(0, 200) : '';
+    if (!points.length && !script) return null;
+    return { points, script, cautions };
+  }
+
+  const api = { hearingPrompt, checkHearing, negotiationPrompt, checkNegotiation, FAQ, kb, qaPrompt, moneyOutside, checkAnswer, evidenceTimeline, transcriptPrompt, checkQuotes, codeRisks, riskPrompt, checkRisks };
   if (isNode) module.exports = api;
   else root.LA = Object.assign(root.LA || {}, { assist: api });
 })(this);
