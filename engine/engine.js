@@ -50,8 +50,18 @@
   // 保守口径的月工资：扣掉加班费（各地是否计入基数不一，L-06）
   function conservativeWage(facts, std) {
     const ot = +facts.monthly_overtime || 0;
-    if (!ot || (std && std.overtime_in_base === '是')) return null;
+    if (!ot || (std && (std.overtime_in_base === '是' || std.overtime_in_base === '否'))) return null;
     return Math.max(0, +facts.monthly_wage - ot);
+  }
+
+  // 主张值用的月工资：地区口径「不含加班费」（如四川）时先扣掉加班费（校准文档 7.15）
+  function mainWage(facts, std) {
+    const W = +facts.monthly_wage, ot = +facts.monthly_overtime || 0;
+    if (std && std.overtime_in_base === '否') {
+      return ot ? { W: Math.max(0, W - ot), note: `当地口径月工资不含加班费，已扣掉每月加班费 ${yuan(ot)} 元` }
+        : { W, note: '当地口径月工资不含加班费和非常规奖金，如果上面的月工资含这些，请改成不含的数' };
+    }
+    return { W, note: null };
   }
 
   // 经济补偿 N（违法解除赔偿金的基础）
@@ -83,7 +93,9 @@
     const lack = missing(facts, ['start_date', 'end_date', 'monthly_wage']);
     if (!lack.length && facts.end_date <= facts.start_date) lack.push('正确的日期（离职日期早于入职日期）');
     if (lack.length) return { amount: null, lack };
-    const c = compensationWith(+facts.monthly_wage, facts, std);
+    const m = mainWage(facts, std);
+    const c = compensationWith(m.W, facts, std);
+    if (m.note) c.notes.unshift(m.note);
     return { ...c, formula: `经济补偿 ${yuan(c.base)} 元/月 × ${c.n} 个月 = ${yuan(c.amount)} 元` };
   }
 
@@ -138,21 +150,29 @@
     if (facts.signed_contract === 'later' && !facts.contract_signed_date) lack.push('补签合同日期');
     if (lack.length) return { amount: null, lack };
     const P = R.PARAMS.double_wage;
-    const W = +facts.monthly_wage;
+    const m = mainWage(facts, std);
+    const W = m.W;
     const w = doubleWageWindow(facts, today);
     const D = (std && std.monthly_workdays) || P.default_monthly_workdays;
-    const r = doubleWageAmount(w.from, w.to, W, null, D);
+    const mode = std && std.double_wage_limitation;
+    const cutoff = cutoffOf(facts, today);
+    const cut = w.from < cutoff;
+    // 时效模式（校准文档 7.15）：整体 = 不切；逐月 = 主张值就按倒推一年切；其他（争议）= 主张值整体，保守值逐月
+    const r = doubleWageAmount(w.from, w.to, W, mode === '逐月' && cut ? cutoff : null, D);
     const part = r.days ? ` + ${yuan(W)} ÷ ${D} × ${r.days} 个工作日` : '';
     const out = { amount: r.amount, window: w, full: r.full, days: r.days, notes: [`只算额外的那一倍（差额）；不满一个月的按 ${D} 天/月折算，工作日按周一至周五估算，调休日未计`],
-      formula: `${yuan(W)} 元/月 × ${r.full} 个月${part} = ${yuan(r.amount)} 元（${w.from} 至 ${w.to}，最多 ${P.max_months} 个月）` };
+      formula: mode === '逐月' && cut && cutoff > w.to ? `${w.from} 至 ${w.to} 都在 ${cutoff} 之前，按当地逐月时效已全部超过一年 = 0 元`
+        : `${yuan(W)} 元/月 × ${r.full} 个月${part} = ${yuan(r.amount)} 元（${mode === '逐月' && cut ? cutoff : w.from} 至 ${w.to}，最多 ${P.max_months} 个月）` };
+    if (m.note) out.notes.unshift(m.note);
+    if (cut && mode === '逐月') out.notes.push(`当地口径二倍工资时效逐月计算，只算 ${cutoff} 以后的部分（从预计申请日倒推一年）`);
+    if (cut && mode === '整体') out.notes.push('当地口径二倍工资时效整体起算，超过一年的月份也可以主张');
     // 保守值：月工资不含加班费；时效从「预计申请仲裁日」按天倒推一年（律师线程 2026-11-22 确认）
-    const cutoff = cutoffOf(facts, today);
     const Wc = conservativeWage(facts, std);
-    const cut = w.from < cutoff;
-    if (Wc != null || cut) {
-      const c = doubleWageAmount(w.from, w.to, Wc != null ? Wc : W, cut ? cutoff : null, D);
+    const cutC = cut && mode !== '整体' && mode !== '逐月';
+    if (Wc != null || cutC) {
+      const c = doubleWageAmount(w.from, w.to, Wc != null ? Wc : W, cutC ? cutoff : null, D);
       out.conservative = c.amount;
-      out.conservativeNote = [Wc != null ? '月工资不含加班费' : '', cut ? `只算 ${cutoff} 以后的部分（从预计申请日 ${facts.filing_date || today} 倒推一年）；如果之前向公司或劳动监察主张过权利，时效可能已中断，保守值会偏低` : ''].filter(Boolean).join('；');
+      out.conservativeNote = [Wc != null ? '月工资不含加班费' : '', cutC ? `只算 ${cutoff} 以后的部分（从预计申请日 ${facts.filing_date || today} 倒推一年）；如果之前向公司或劳动监察主张过权利，时效可能已中断，保守值会偏低` : ''].filter(Boolean).join('；');
     }
     return out;
   }
@@ -212,11 +232,12 @@
     reason_unknown: f => !f.termination_reason && '还不清楚公司给的解除理由',
     signed_exit_doc: f => f.signed_exit_doc === 'yes' && '你签过离职文件，公司可能主张是协商一致或你主动辞职',
     pre2008_high_income: (f, t, std) => f.start_date && f.start_date < '2008-01-01' && std && std.avg_wage && +f.monthly_wage > std.avg_wage * R.PARAMS.compensation.high_income_multiple && '高收入且 2008 年前入职，2008 年前的年限是否也受 12 年限制各地不一',
-    overtime_base_regional: (f, t, std) => +f.monthly_overtime > 0 && !(std && std.overtime_in_base === '是') && '月工资是否含加班费各地口径不同，已同时给出不含加班费的保守值',
+    overtime_base_regional: (f, t, std) => +f.monthly_overtime > 0 && !(std && (std.overtime_in_base === '是' || std.overtime_in_base === '否')) && '月工资是否含加班费各地口径不同，已同时给出不含加班费的保守值',
     hr_role: f => f.hr_role === 'yes' && '你负责人事或属于管理层，公司可能主张未签合同是你自身的过失',
     refused_to_sign: f => f.refused_to_sign === 'yes' && '公司书面通知过签合同而你没签，可能不支持二倍工资',
-    double_wage_beyond_limitation: (f, today) => {
+    double_wage_beyond_limitation: (f, today, std) => {
       const w = doubleWageWindow(f, today);
+      if (std && (std.double_wage_limitation === '整体' || std.double_wage_limitation === '逐月')) return false;
       return w && w.from < cutoffOf(f, today) && '部分月份距今超过一年，二倍工资时效怎么算各地口径不同，已同时给出保守值';
     },
     constructive_resignation: f => f.separation === 'resigned' && '被迫辞职要在辞职通知里写明公司欠薪等具体理由；写「个人原因」很可能拿不到经济补偿',

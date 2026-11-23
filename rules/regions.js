@@ -137,6 +137,47 @@
     online_note: '全省可以用粤省事微信小程序「劳动人事争议调解仲裁」申请。',
   };
   if (PROVINCE_DEFAULTS['广东省']) PROVINCE_DEFAULTS['广东省'].application_format = GD_FORMAT;
+  // 浙江、江苏、四川、重庆（律师线程校准文档 7.11–7.15，核对日期 2026-11-23）：官方页面大多抓取失败，程序部分先按全国默认，窗口待核
+  const PENDING = '（待核：只有转载，未见官方原文）';
+  const nullDistricts = list => Object.fromEntries(list.map(d => [d, null]));
+  const setProv = (prov, fields) => { if (PROVINCE_DEFAULTS[prov]) Object.assign(PROVINCE_DEFAULTS[prov], fields); };
+  setProv('浙江省', {
+    double_wage_limitation: '整体',  // 浙江解答（一）第4题，转载待核
+    local_notes: { double_wage: '浙江解答（一）第1题：工伤停工留薪期、产假哺乳假、病假期间等确实不能归责于单位而没签合同的，不支持二倍工资' + PENDING },
+    application_format: { ...DEFAULT_APP_FORMAT,
+      copy_rule: { plus: 1, keep: 1, source: '沿用北京口径，待核' },
+      online: { name: '浙江劳动人事争议调解仲裁网络平台（待核）', url: 'http://tjzcfw.rlsbt.zj.gov.cn/tjzc/#online-hall' },
+      online_note: '手机上可以在浙里办搜「人社服务专区」→「劳动人事争议调解仲裁网络平台」。能不能全程网上立案、要不要再交纸质材料还没核实（来源为 2022 年第三方汇总）。',
+    } });
+  setProv('江苏省', {
+    local_notes: { defenses: { '你负责人事，签合同是你的职责': '江苏指导意见（二）第六条：单位能拿出聘任决定或聘任书并已实际履行的，高管主张二倍工资不予支持。' } },
+    application_format: { ...DEFAULT_APP_FORMAT,
+      copy_rule: { plus: 1, keep: 1, source: '沿用北京口径，待核' },
+      online_note: '全省可以在江苏省人社厅网站网上立案：「我要办」→「更多」→「劳动关系」→「劳动人事争议调解仲裁」→「劳动人事争议仲裁申请」，填写资料并上传证据（南京人社 2026-06-18）。之后要不要再交纸质材料还没核实。',
+    } });
+  setProv('四川省', {
+    double_wage_limitation: '逐月',  // 川高法民一〔2016〕1号第31条，转载待核
+    overtime_in_base: '否',          // 同上第29条，转载待核
+    local_notes: { double_wage: '川高法民一〔2016〕1号第29、31条：月工资不含加班费和非常规奖金；二倍工资时效逐月倒推一年' + PENDING,
+      economic_compensation: '川高法民一〔2016〕1号第29条：经济补偿基数不含加班费和非常规奖金、津补贴' + PENDING,
+      illegal_termination: '川高法民一〔2016〕1号第29条：赔偿金基数不含加班费和非常规奖金、津补贴' + PENDING,
+      defenses: { '合同签过了': '川高法民一〔2016〕1号第20条：应聘登记表、聘用通知书等写明了期限和报酬并已按此履行的，视为已签合同' + PENDING } },
+    application_format: { ...DEFAULT_APP_FORMAT,
+      copy_rule: { plus: 1, keep: 1, source: '沿用北京口径，待核' },
+    } });
+  setProv('重庆市', {
+    double_wage_limitation: '整体',  // 六部门纪要（三）第三条，转载待核
+    local_notes: { defenses: { '合同签过了': '重庆六部门纪要（三）第一条：合同无效不等于没签' + PENDING } },
+  });
+  if (PROVINCE_DEFAULTS['重庆市']) Object.assign(PROVINCE_DEFAULTS['重庆市'].application_format, {
+    copy_rule: { plus: 1, keep: 1, source: '沿用北京口径，待核' },
+    hotline: '023-12333',
+    jurisdiction: '由工作地或单位所在地的区县（自治县）仲裁机构受理；市级是否另有管辖范围还没核实。',
+    online_note: '提交材料：申请书、身份证明，委托代理的加委托材料。咨询 023-12333。',
+    districts: nullDistricts(['渝中', '江北', '渝北', '九龙坡', '南岸', '沙坪坝', '大渡口', '巴南', '北碚', '万州', '涪陵', '綦江', '大足', '黔江', '长寿', '江津', '合川', '永川', '南川', '璧山', '铜梁', '潼南', '荣昌', '开州', '梁平', '武隆',
+      '城口县', '丰都县', '垫江县', '忠县', '云阳县', '奉节县', '巫山县', '巫溪县', '石柱土家族自治县', '秀山土家族苗族自治县', '酉阳土家族苗族自治县', '彭水苗族土家族自治县']),
+  });
+
   const GZ = (address, phone) => ({ address, phone, hours: null, source: '广州市人社局官方页面（2025-01-14）', checked: '2026-11-23' });
 
   // 市级覆盖：只写和省级默认不同的字段，例如 { '深圳': { avg_wage: { 2025: { value: 12345, scope: '职工平均' } } } }
@@ -160,6 +201,24 @@
         增城: GZ('荔城街挂绿路14号东楼', '020-82738511'), 黄埔: GZ('水西路12号A栋社会治理中心大厅', '020-82116348'),
         南沙: GZ('初晴路19号晶荟广场1号楼2层（各街镇另设收件点）', '020-39911782'),
       } } },
+    杭州: { application_format: { ...PROVINCE_DEFAULTS['浙江省'].application_format,
+      hotline: '0571-12333',
+      jurisdiction: '由工作地或单位所在地的仲裁机构管辖。杭州市、区分工按杭州市仲裁委 2025-05-06 的管辖通知，原文还没核实：大型企业、市属单位可能归市仲裁院，去之前先打电话问。',
+      districts: nullDistricts(['上城', '拱墅', '西湖', '滨江', '萧山', '余杭', '临平', '钱塘', '富阳', '临安', '桐庐县', '淳安县', '建德市']) } },
+    南京: { application_format: { ...PROVINCE_DEFAULTS['江苏省'].application_format,
+      jurisdiction: '南京按 2024-12-01 起施行的管辖通知：没有注册资本门槛，普通企业都归区（园区）仲裁委。南京 2026-10 发布了新的征求意见稿，可能很快改版。',
+      triage: { question: '单位是不是中央、部队、省级或市级的机关、事业单位，或者它们下属的国有（控股）企业？',
+        districts: ['玄武', '秦淮', '建邺', '鼓楼', '栖霞', '雨花台'],
+        yes: { name: '南京市劳动人事争议仲裁院', address: '建邺区水西门大街61号（南京市人社局公告里的通信地址）', phone: null, hours: null, pending: true, source: '律师线程校准文档 7.12', checked: '2026-11-23' } },
+      triage_skip_note: '工作地在江宁、浦口、六合、溧水、高淳、江北新区、经开区的，即使是机关、事业单位或下属国企，也归所在区（园区）仲裁委。',
+      districts: nullDistricts(['玄武', '秦淮', '建邺', '鼓楼', '栖霞', '雨花台', '江宁', '浦口', '六合', '溧水', '高淳', '江北新区', '经开区']) } },
+    苏州: { application_format: { ...PROVINCE_DEFAULTS['江苏省'].application_format,
+      jurisdiction: '苏州 2021 年起试行「全市范围劳动人事争议仲裁案件全域受理」，可能在全市任一仲裁机构都能交材料，原文还没核实，去之前先打电话问。',
+      districts: nullDistricts(['姑苏', '虎丘', '吴中', '相城', '吴江', '工业园区', '常熟市', '张家港市', '昆山市', '太仓市']) } },
+    成都: { application_format: { ...PROVINCE_DEFAULTS['四川省'].application_format,
+      hotline: '028-12333',
+      jurisdiction: '由工作地或单位所在地的区（市、县）仲裁机构管辖；成都市、区分工和网上申请入口还没核实。',
+      districts: nullDistricts(['锦江', '青羊', '金牛', '武侯', '成华', '龙泉驿', '青白江', '新都', '温江', '双流', '郫都', '新津', '简阳市', '都江堰市', '彭州市', '邛崃市', '崇州市', '金堂县', '大邑县', '蒲江县']) } },
     深圳: { application_format: { ...GD_FORMAT,
       hotline: '0755-12333',
       triage: { question: '单位认缴注册资本是不是 1000 万元以上，或者是市属、中央或省驻深单位？',

@@ -542,7 +542,7 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
           <div class="row"><button class="chip" :class="{on: st.facts.city_level === 'yes'}" @click="editFact('city_level', 'yes')">是</button><button class="chip" :class="{on: st.facts.city_level === 'no'}" @click="editFact('city_level', 'no')">不是</button></div>
         </div>
         <label v-if="appFormat.districts && !(appFormat.triage && !appFormat.triage.districts && st.facts.city_level === 'yes')" class="f">你在哪个区上班 <small class="src">{{ src('district') }}</small>
-          <select id="district" :value="st.facts.district || ''" @change="e => editFact('district', e.target.value)"><option value="">请选择</option><option v-for="(v, d) in appFormat.districts" :value="d">{{ d }}{{ d.endsWith('区') ? '' : '区' }}</option></select></label>
+          <select id="district" :value="st.facts.district || ''" @change="e => editFact('district', e.target.value)"><option value="">请选择</option><option v-for="(v, d) in appFormat.districts" :value="d">{{ d }}{{ /[区县市]$/.test(d) ? '' : '区' }}</option></select></label>
         <div v-if="appFormat.triage && appFormat.triage.districts && triageOn" class="stack">
           <p class="sub">{{ appFormat.triage.question }}</p>
           <div class="row"><button class="chip" :class="{on: st.facts.city_level === 'yes'}" @click="editFact('city_level', 'yes')">是</button><button class="chip" :class="{on: st.facts.city_level === 'no'}" @click="editFact('city_level', 'no')">不是</button></div>

@@ -232,7 +232,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
         return R.EVIDENCE.filter(g => groups.has(g.group));
       });
       // 有区级数据的城市（目前是北京）按工作地所在区推荐仲裁委
-      const districtName = d => d === '经开区' ? '北京经济技术开发区劳动人事争议仲裁委员会' : `${st.facts.city}市${d}${d.endsWith('区') ? '' : '区'}劳动人事争议仲裁委员会`;
+      const districtName = d => d === '经开区' ? `${st.facts.city}经济技术开发区劳动人事争议仲裁委员会` : `${st.facts.city}市${d}${/[区县市]$/.test(d) ? '' : '区'}劳动人事争议仲裁委员会`;
       // 分流题是否适用：有的城市只对部分区问（广州、深圳），其余区一律归区
       const triageOn = computed(() => {
         const t = (std.value && std.value.application_format || {}).triage;
@@ -243,7 +243,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
         const fmt = std.value && std.value.application_format || {}, ds = fmt.districts;
         if (triageOn.value && st.facts.city_level === 'yes') return fmt.triage.yes.name;
         if (ds && st.facts.district && st.facts.district in ds) return districtName(st.facts.district);
-        return `${st.facts.city}${/市|州|盟|地区|林区$/.test(st.facts.city) ? '' : '市'}劳动人事争议仲裁委员会`;
+        return `${st.facts.city}${/(市|自治州|盟|地区|林区)$/.test(st.facts.city) ? '' : '市'}劳动人事争议仲裁委员会`;
       });
       const institution = computed(() => {
         const f = std.value && std.value.application_format || {};
@@ -254,7 +254,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       watch(() => [st.facts.city, st.app.respondent.address, st.chat.length], () => {
         const ds = (std.value && std.value.application_format || {}).districts;
         if (!ds || st.facts.district) return;
-        const find = text => Object.keys(ds).find(d => d === '经开区' ? /经开区|亦庄|经济技术开发区/.test(text) : text.includes(d.endsWith('区') ? d : d + '区'));
+        const find = text => Object.keys(ds).find(d => d === '经开区' ? /经开区|亦庄|经济技术开发区/.test(text) : text.includes(/[区县市]$/.test(d) ? d : d + '区'));
         const said = find(st.chat.filter(m => m.role === 'user').map(m => m.text).join(' '));
         const addr = find(st.app.respondent.address || '');
         if (said || addr) { st.facts.district = said || addr; st.sources.district = said ? '你在对话里说的' : '公司住所（如果工作地在别的区，请改）'; }

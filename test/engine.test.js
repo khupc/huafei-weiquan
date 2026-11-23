@@ -260,3 +260,29 @@ test('材料识别：解除通知写入离职日期和书面通知', () => {
   assert.strictEqual(state.facts.end_date, '2026-10-21');
   assert.strictEqual(state.facts.termination_form, 'written');
 });
+
+test('地区参数（校准文档 7.15）：二倍工资时效 整体/逐月/争议，月工资是否含加班费', () => {
+  // 2025-01-10 入职未签，2026-02-01 离职，预计 2026-03-01 申请 → 切点 2025-03-01
+  const f = { start_date: '2025-01-10', end_date: '2026-02-01', monthly_wage: 10000, monthly_overtime: 2000, signed_contract: 'no', filing_date: '2026-03-01' };
+  const def = E.doubleWage(f, { double_wage_limitation: '有争议', overtime_in_base: '有争议' }, '2026-03-01');
+  const whole = E.doubleWage(f, { double_wage_limitation: '整体', overtime_in_base: '是' }, '2026-03-01');
+  const monthly = E.doubleWage(f, { double_wage_limitation: '逐月', overtime_in_base: '否' }, '2026-03-01');
+  assert.strictEqual(whole.amount, def.amount);           // 整体：主张值同默认
+  assert.strictEqual(whole.conservative, undefined);      // 整体 + 含加班费：没有保守值
+  assert.ok(def.conservative < def.amount);               // 默认：双值
+  assert.strictEqual(monthly.conservative, undefined);    // 逐月 + 不含加班费：直接是主张值
+  assert.strictEqual(monthly.amount, def.conservative);   // 等于默认的保守值（扣加班费 + 逐月切）
+  const c = E.compensation(f, { overtime_in_base: '否' });
+  assert.strictEqual(c.base, 8000);
+  assert.match(c.notes[0], /不含加班费/);
+});
+
+test('地区表：浙江/重庆整体、四川逐月且不含加班费，其余默认争议', () => {
+  assert.strictEqual(G.standardsFor('杭州', '2026-10-01').double_wage_limitation, '整体');
+  assert.strictEqual(G.standardsFor('重庆', '2026-10-01').double_wage_limitation, '整体');
+  assert.strictEqual(G.standardsFor('成都', '2026-10-01').double_wage_limitation, '逐月');
+  assert.strictEqual(G.standardsFor('成都', '2026-10-01').overtime_in_base, '否');
+  assert.strictEqual(G.standardsFor('南京', '2026-10-01').double_wage_limitation, '有争议');
+  assert.strictEqual(G.standardsFor('南京', '2026-10-01').application_format.triage.yes.name, '南京市劳动人事争议仲裁院');
+  assert.strictEqual(G.standardsFor('广州', '2026-10-01').double_wage_limitation, '有争议');
+});
