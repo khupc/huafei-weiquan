@@ -133,6 +133,12 @@ ol.path small { color: var(--muted); display: block; }
 .drawer-mask { position: fixed; inset: 0; background: rgb(0 0 0 / .35); z-index: 20; }
 .drawer { position: fixed; top: 0; bottom: 0; left: 0; width: min(320px, 85vw); background: var(--surface); z-index: 21; padding: calc(16px + env(safe-area-inset-top, 0px)) 16px 16px max(16px, env(safe-area-inset-left, 0px)); overflow-y: auto; display: grid; align-content: start; gap: 8px; }
 .case-item { text-align: left; border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: transparent; }
+.fab { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(84px + env(safe-area-inset-bottom, 0px)); z-index: 15; border-radius: 999px; padding: 10px 16px; box-shadow: 0 4px 14px rgb(0 0 0 / .18); }
+.sheet { position: fixed; left: 0; right: 0; bottom: 0; max-height: 78vh; background: var(--surface); border-top: 1px solid var(--line); border-radius: 16px 16px 0 0; z-index: 25; display: grid; grid-template-rows: auto 1fr auto; padding: 14px 16px calc(12px + env(safe-area-inset-bottom, 0px)); max-width: 640px; margin: 0 auto; }
+.sheet-body { overflow-y: auto; display: grid; gap: 8px; align-content: start; padding-block: 8px; }
+.risk { border-left: 3px solid var(--need); padding-left: 10px; }
+.risk.high { border-color: var(--danger); }
+.tl { display: grid; grid-template-columns: 6.5em 1fr; gap: 4px 10px; font-size: 14px; }
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(90px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 13px; z-index: 30; }
 pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padding: 10px; border-radius: 8px; max-height: 260px; overflow: auto; }
 .model { font-size: 11px; color: var(--muted); }
@@ -338,6 +344,15 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
         <p v-if="!pendingKeys.length && totals.conservative !== totals.total" class="sub">按更不利的口径算，保守值为 {{ E.yuan(totals.conservative) }} 元。</p>
         <p class="sub">生成于 {{ today() }}；社平工资取 {{ stdCity }} {{ std && std.year }} 年度（{{ std && std.origin.avg_wage }}）。</p>
       </section>
+      <section v-if="codeRiskList.length || (st.aiRisks && st.aiRisks.list.length) || ui.riskBusy || record.user_words.length" class="card stack" id="risks">
+        <h2>风险提醒</h2>
+        <div v-for="(r, i) in codeRiskList" :key="'c' + i" class="risk stack" :class="r.level"><b>{{ r.title }}</b><span class="sub">{{ r.text }}</span></div>
+        <div v-for="(r, i) in (st.aiRisks && st.aiRisks.list) || []" :key="'a' + i" class="risk stack"><b>前后说法对不上</b><span class="sub">「{{ r.a }}」和「{{ r.b }}」</span><span class="sub">{{ r.tip }}</span></div>
+        <p v-if="st.aiRisks && !st.aiRisks.list.length && !risksStale && !codeRiskList.length" class="sub">没发现前后说法对不上的地方。</p>
+        <p v-if="ui.riskBusy" class="sub">正在检查你说过的话和材料有没有对不上的地方…</p>
+        <button v-else-if="risksStale && record.user_words.length" class="btn ghost" @click="checkRisks">检查前后说法有没有矛盾</button>
+        <p class="sub">期限和证据档位由代码算；「前后说法对不上」由 AI 找，两处原话都来自你说过的话或上传的材料。</p>
+      </section>
       <section class="card stack">
         <div class="tabs">
           <button :class="{on: ui.tab === 'detail'}" @click="ui.tab = 'detail'">请求明细</button>
@@ -376,6 +391,35 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
       <section class="card">
         <h2>证据清单</h2>
         <p class="sub">只列和你选的请求有关的证据。点一下就勾上，并可以上传照片：{{ imgCaps.ok ? '我会读出上面的信息，自动记下，写申请书时不用再填。' : '当前环境不能识别图片，照片只做附件。' }}勾选会更新报告里的分档。</p>
+      </section>
+      <section v-if="codeRiskList.length || (st.aiRisks && st.aiRisks.list.length) || ui.riskBusy || record.user_words.length" class="card stack" id="risks">
+        <h2>风险提醒</h2>
+        <div v-for="(r, i) in codeRiskList" :key="'c' + i" class="risk stack" :class="r.level"><b>{{ r.title }}</b><span class="sub">{{ r.text }}</span></div>
+        <div v-for="(r, i) in (st.aiRisks && st.aiRisks.list) || []" :key="'a' + i" class="risk stack"><b>前后说法对不上</b><span class="sub">「{{ r.a }}」和「{{ r.b }}」</span><span class="sub">{{ r.tip }}</span></div>
+        <p v-if="st.aiRisks && !st.aiRisks.list.length && !risksStale && !codeRiskList.length" class="sub">没发现前后说法对不上的地方。</p>
+        <p v-if="ui.riskBusy" class="sub">正在检查你说过的话和材料有没有对不上的地方…</p>
+        <button v-else-if="risksStale && record.user_words.length" class="btn ghost" @click="checkRisks">检查前后说法有没有矛盾</button>
+        <p class="sub">期限和证据档位由代码算；「前后说法对不上」由 AI 找，两处原话都来自你说过的话或上传的材料。</p>
+      </section>
+      <section class="card stack" id="recording">
+        <h2>录音整理</h2>
+        <p class="sub">有辞退、讨薪的录音？用微信「转文字」或手机自带的录音转写，把文字粘贴到下面；{{ ui.canDictate ? '也可以点「边放边听写」，外放录音让我听。' : '' }}我会摘出关键原话，你勾选确认后记进案件，并勾上「通话录音」证据。原始录音文件请保留好，开庭要用。</p>
+        <textarea id="rec-text" v-model="ui.recText" rows="5" placeholder="把录音的文字稿粘贴到这里"></textarea>
+        <p v-if="ui.dictPartial" class="sub">听写中：{{ ui.dictPartial }}</p>
+        <div class="row">
+          <button v-if="ui.canDictate" class="btn ghost" @click="toggleDictation">{{ ui.dictating ? '停止听写' : '边放边听写' }}</button>
+          <button id="rec-extract" class="btn" :disabled="ui.recBusy || ui.recText.trim().length < 4" @click="extractQuotes">{{ ui.recBusy ? '正在摘取…' : '摘出关键原话' }}</button>
+        </div>
+        <template v-if="ui.recQuotes.length">
+          <label v-for="(q, i) in ui.recQuotes" :key="i" class="check"><input type="checkbox" v-model="ui.recPick[i]"><span><b>{{ q.speaker }}：</b>「{{ q.quote }}」<br><small class="sub">{{ q.shows }}</small></span></label>
+          <button id="rec-confirm" class="btn block" @click="confirmQuotes">确认，记进案件</button>
+        </template>
+        <p v-for="(r, i) in st.recordings" :key="'r' + i" class="sub">已记入第 {{ i + 1 }} 段录音：{{ r.quotes.length }} 句原话。</p>
+      </section>
+      <section v-if="evTimeline.length" class="card stack" id="ev-timeline">
+        <h2>材料时间线</h2>
+        <p class="sub">按材料上的日期排好，看得出事情的先后。没读出日期的排在最后；同一个文件传两次只算一次。</p>
+        <div class="tl"><template v-for="(e, i) in evTimeline" :key="i"><span class="sub">{{ e.date || '日期不明' }}</span><span><b>{{ e.tag }}</b><template v-if="e.note">：{{ e.note }}</template></span></template></div>
       </section>
       <!-- 补正对话：想到啥说啥 -->
       <section class="card stack" id="supplement">
@@ -631,6 +675,20 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
     </section>
   </main>
   <datalist id="city-options"><option v-for="c in allCities" :value="c.city"></option></datalist>
+  <button v-if="!ui.qaOpen" class="btn fab" id="qa-open" @click="ui.qaOpen = true">问一问</button>
+  <div v-if="ui.qaOpen" class="drawer-mask" @click="ui.qaOpen = false"></div>
+  <section v-if="ui.qaOpen" class="sheet" id="qa">
+    <div class="row"><b class="grow">问答助手</b><button class="btn plain" @click="ui.qaOpen = false">关闭</button></div>
+    <div class="sheet-body">
+      <p v-if="!st.qa.length" class="sub">关于仲裁流程、费用、证据的问题都可以问。我只按审校过的资料和你这个案子的情况回答，不会改你的数据，金额以测算页为准。</p>
+      <div v-if="!st.qa.length" class="row"><button v-for="q in QA_CHIPS" :key="q" class="chip" @click="askQA(q)">{{ q }}</button></div>
+      <template v-for="(m, i) in st.qa" :key="i">
+        <div class="msg user">{{ m.q }}</div>
+        <div class="msg ai">{{ m.a || '想一想…' }}<template v-if="m.sources.length"><br><small class="sub">依据：{{ m.sources.join('；') }}{{ m.pending.length ? '（部分待律师确认）' : '' }}</small></template></div>
+      </template>
+    </div>
+    <div class="row"><input id="qa-input" class="grow" v-model="ui.qaInput" placeholder="输入你的问题" @keydown.enter="askQA()"><button class="btn" :disabled="ui.qaBusy || !ui.qaInput.trim()" @click="askQA()">问</button></div>
+  </section>
   <div v-if="ui.toast" class="toast">{{ ui.toast }}</div>
 </div>
 
@@ -643,4 +701,5 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
 <script src="engine/docs.js"></script>
 <script src="engine/flow.js"></script>
 <script src="engine/procedure.js"></script>
+<script src="engine/assist.js"></script>
 <script src="web/app.js"></script>

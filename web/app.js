@@ -3,7 +3,7 @@
 // 中间靠纯代码锁死确定性（金额 engine.js、流程解锁 flow.js、文书句式 flow.js）。
 // 模型读出的计算参数先进 st.pending，用户确认后才出金额；模型永远不直接给用户赔偿数字。
 (function () {
-  const { rules: R, regions: G, facts: F, engine: E, docs: D, flow: W, procedure: P } = window.LA;
+  const { rules: R, regions: G, facts: F, engine: E, docs: D, flow: W, procedure: P, assist: A } = window.LA;
   const { createApp, reactive, computed, watch, nextTick } = Vue;
   const today = () => new Date().toISOString().slice(0, 10);
 
@@ -11,6 +11,8 @@
   const model = reactive({ status: '连接中…', ok: false });
   let samplePromise = Promise.resolve(null);
   if (window.claude && window.claude.use) samplePromise = window.claude.use('sample').catch(() => null);
+  let dictationPromise = Promise.resolve(null);
+  if (window.claude && window.claude.use) dictationPromise = window.claude.use('dictation').catch(() => null);
   // 图片识别能力：只有 artifact 声明了 sample.images 且当前环境支持时才有
   const imgCaps = reactive({ ok: false, accept: 'image/*', max: 4 });
   samplePromise.then(async s => {
@@ -186,6 +188,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       app: { applicant: { name: '', gender: '', ethnicity: '', birth: '', hukou: '', id_type: '居民身份证', id_no: '', address: '', phone: '', service_address: '', email: '' },
         respondent: { name: '', company_type: '', credit_code: '', legal_rep: '', legal_rep_title: '', address: '', office_address: '', contact: '', contact_title: '', phone: '' }, reasons: '', step: 1,
         agent: { on: false, type: 'general', name: '', gender: '', age: '', work: '', residence: '', phone: '' } },
+      qa: [], hashes: [], recordings: [], aiRisks: null,
       checked: {}, submission: { submitted: '', receiptNo: '', accepted: '', evidenceDeadline: '', hearing: '', awardReceived: '', finalAward: false },
     };
   }
@@ -200,7 +203,8 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
   createApp({
     setup() {
       const st = reactive(blankCase());
-      const ui = reactive({ reply: '', busy: false, drawer: false, cases: loadCases(), tab: 'detail', missing: [], focusQ: '', supp: '', evBusy: false, exportText: '', editing: false, toast: '' });
+      const ui = reactive({ reply: '', busy: false, drawer: false, cases: loadCases(), tab: 'detail', missing: [], focusQ: '', supp: '', evBusy: false, exportText: '', editing: false, toast: '', qaOpen: false, qaInput: '', qaBusy: false, recText: '', recBusy: false, recQuotes: [], recPick: {}, dictating: false, dictPartial: '', canDictate: false, riskBusy: false });
+      dictationPromise.then(d => { ui.canDictate = !!d; });
 
       const allCities = G.PROVINCES.flatMap(p => p.cities.map(c => ({ city: c, province: p.province })));
       // 社平工资按「用人单位所在」城市取，最低工资同；年度取解除时的上年度（校准文档 L-04、4.1）
@@ -464,10 +468,22 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
         };
         inp.click();
       }
+      // 同一个文件传两次只算一次：按文件内容的 SHA-256 去重
+      async function hashOf(f) {
+        try { const b = await crypto.subtle.digest('SHA-256', await f.arrayBuffer()); return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join(''); } catch (e) { return f.name + f.size; }
+      }
       async function recognize(kind, tag, slot, list) {
+        const fresh = [];
+        for (const f of list) { const h = await hashOf(f); if (!st.hashes.includes(h)) { st.hashes.push(h); fresh.push(f); } }
+        if (!fresh.length) {
+          const dup = { tag: tag || '材料', kind, ticked: false, at: new Date().toISOString(), filled: [], conflicts: [], keys: [], confirmed: false, note: `和之前传过的文件一模一样，已跳过：${list.map(f => f.name).join('、')}`, busy: false, dup: true, file: list.map(f => f.name).join('、') };
+          st.recognized.unshift(dup);
+          return st.recognized[0];
+        }
+        list = fresh;
         files[slot] = [...(files[slot] || []), ...list.map(f => ({ name: f.name, url: URL.createObjectURL(f) }))];
         const imgs = imgCaps.ok ? list.filter(f => imgCaps.accept.split(',').includes(f.type)).slice(0, imgCaps.max) : [];
-        const rec = { tag: tag || '材料', kind, ticked: false, at: new Date().toISOString(), filled: [], conflicts: [], keys: [], confirmed: false, note: '', busy: true };
+        const rec = { tag: tag || '材料', kind, ticked: false, at: new Date().toISOString(), filled: [], conflicts: [], keys: [], confirmed: false, note: '', busy: true, file: list.map(f => f.name).join('、'), doc_date: null };
         st.recognized.unshift(rec);
         const r = st.recognized[0];
         if (!imgs.length) {
@@ -485,6 +501,8 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
             if (ALL_EVIDENCE.includes(tag)) r.ticked = tickEvidence([tag]).length > 0;
             if (data && data.summary && !/元/.test(data.summary)) r.note = String(data.summary);
           }
+          if (data && typeof data.doc_date === 'string' && /^\d{4}-\d{2}(-\d{2})?$/.test(data.doc_date)) r.doc_date = data.doc_date;
+          if (kind !== 'auto' && data && data.summary && !r.note && !/元/.test(data.summary)) r.note = String(data.summary);
           if (data && data.doc_ok === false) r.note = `这张看起来不像「${tag}」，请确认上传的文件。`;
           const before = Object.fromEntries(W.CALC_KEYS.map(k => [k, st.facts[k]]));
           const out = D.apply(kind, data, { facts: st.facts, manual: st.manual, applicant: st.app.applicant, respondent: st.app.respondent, sources: st.sources }, `${tag}照片`);
@@ -795,6 +813,92 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
         }
         ui.exportText = blocks.map(b => b.pageBreak ? '\n——————————\n' : b.table ? b.table.map(r => r.join('\t')).join('\n') : (b.label || '') + (b.text || '')).join('\n');
       }
+      // ---------- 应用层 AI：问答助手 / 证据时间线 / 录音关键句 / 风险提醒（engine/assist.js 校验输出） ----------
+      const kbEntries = computed(() => A.kb(std.value));
+      const qaContext = computed(() => ({
+        city: st.facts.city || '还没说', page: (PAGES.find(p => p.id === st.page) || {}).name,
+        claims: pendingKeys.value.length ? '金额待用户确认参数后才有' : chosen.value.map(c => ({ title: c.title, tier: c.tier, amount: c.calc && c.calc.amount != null ? E.yuan(c.calc.amount) + ' 元' : '暂无' })),
+        total: pendingKeys.value.length ? null : E.yuan(totals.value.total) + ' 元',
+        eligibility: eligible.value.items.map(i => `${i.label}：${i.note}`),
+        arbitration: arbitration.value,
+      }));
+      async function askQA(q) {
+        const question = String(q || ui.qaInput).trim();
+        if (!question || ui.qaBusy) return;
+        ui.qaInput = ''; ui.qaBusy = true;
+        const item = { q: question, a: '', sources: [], pending: [], at: new Date().toISOString() };
+        st.qa.push(item);
+        const it = st.qa[st.qa.length - 1];
+        try {
+          const sample = await samplePromise;
+          if (!sample) throw { code: 'no_sample' };
+          const ctx = qaContext.value, entries = kbEntries.value;
+          let res = A.checkAnswer(await sample.json(A.qaPrompt(question, entries, ctx, st.qa.slice(0, -1).map(x => ({ q: x.q, a: x.a }))), { modelTier: 'quick', cache: false }), entries, ctx);
+          if (!res.ok) res = { ok: true, answer: '这个我这里没有可靠的依据，建议拨打当地 12333 或咨询律师。金额以测算页代码算出的为准。', sources: [], pending: [] };
+          Object.assign(it, { a: res.answer, sources: res.sources.map(id => (entries.find(e => e.id === id) || {}).title).filter(Boolean), pending: res.pending });
+        } catch (e) {
+          it.a = e && e.code === 'not_granted' ? '你没有授权使用 Claude，问答用不了。' : '当前环境用不了问答，可以拨打当地 12333 咨询。';
+        }
+        ui.qaBusy = false;
+      }
+      const QA_CHIPS = ['仲裁要花钱吗', '要不要请律师', '仲裁要多久', '证据都在公司手里怎么办', '赢了公司不给钱怎么办'];
+
+      const evTimeline = computed(() => A.evidenceTimeline(st.recognized));
+
+      // 录音：手机/微信转好的文字稿粘贴进来，或边放录音边听写；模型只摘原话，代码核对每句都在文字稿里
+      let dict = null;
+      async function toggleDictation() {
+        if (ui.dictating) { try { await dict.stop(); } catch (e) { } return; }
+        const d = await dictationPromise;
+        if (!d) { flash('当前环境不支持听写，请粘贴文字稿'); return; }
+        if (!dict) {
+          dict = d;
+          d.onPartial(({ text }) => { ui.dictPartial = text; });
+          d.onFinal(({ text }) => { ui.recText += text; ui.dictPartial = ''; });
+          d.onState(({ state }) => { ui.dictating = state === 'listening'; });
+        }
+        d.start().catch(e => { ui.dictating = false; flash(e && e.code === 'not_granted' ? '没有授权听写，请粘贴文字稿' : '听写没有启动，请粘贴文字稿'); });
+      }
+      async function extractQuotes() {
+        const text = ui.recText.trim();
+        if (text.length < 4 || ui.recBusy) return;
+        ui.recBusy = true; ui.recQuotes = []; ui.recPick = {};
+        try {
+          const sample = await samplePromise;
+          if (!sample) throw { code: 'no_sample' };
+          ui.recQuotes = A.checkQuotes(await sample.json(A.transcriptPrompt(text, record.value.confirmed_facts), { modelTier: 'quick' }), text);
+          ui.recQuotes.forEach((q, i) => { ui.recPick[i] = true; });
+          if (!ui.recQuotes.length) flash('没有找到和仲裁有关的原话');
+        } catch (e) { flash(e && e.code === 'not_granted' ? '没有授权使用 Claude' : '摘取没有成功，可以直接在下面的补充框里说'); }
+        ui.recBusy = false;
+      }
+      async function confirmQuotes() {
+        const picked = ui.recQuotes.filter((q, i) => ui.recPick[i]);
+        if (!picked.length) return;
+        st.recordings.push({ transcript: ui.recText.trim(), quotes: picked, at: new Date().toISOString() });
+        tickEvidence(['通话录音']);
+        ui.supp = '录音里：' + picked.map(q => `${q.speaker === '不确定' ? '' : q.speaker}说「${q.quote}」`).join('；');
+        await supplement();
+        ui.recText = ''; ui.recQuotes = []; ui.recPick = {};
+      }
+
+      // 风险提醒：代码算的（时效、冲突、证据档位）+ 模型找的前后矛盾（两处原话都要在记录里）
+      const codeRiskList = computed(() => A.codeRisks({ eligibility: eligible.value, asks: st.asks, claims: chosen.value, display }));
+      const recordKey = computed(() => JSON.stringify([record.value.user_words, record.value.materials, record.value.confirmed_facts]));
+      async function checkRisks() {
+        if (ui.riskBusy) return;
+        ui.riskBusy = true;
+        try {
+          const sample = await samplePromise;
+          if (!sample) throw { code: 'no_sample' };
+          const rec = { user_words: record.value.user_words, materials: record.value.materials, confirmed_facts: record.value.confirmed_facts };
+          st.aiRisks = { key: recordKey.value, list: A.checkRisks(await sample.json(A.riskPrompt(rec), { modelTier: 'quick' }), rec), at: new Date().toISOString() };
+        } catch (e) { flash(e && e.code === 'not_granted' ? '没有授权使用 Claude' : '检查没有成功，稍后再试'); }
+        ui.riskBusy = false;
+      }
+      const risksStale = computed(() => !st.aiRisks || st.aiRisks.key !== recordKey.value);
+      watch(() => st.page, p => { if ((p === 'P4' || p === 'P5') && risksStale.value && record.value.user_words.length) checkRisks(); });
+
       function flash(t) { ui.toast = t; setTimeout(() => { ui.toast = ''; }, 2500); }
 
       const examples = ['被辞退', '拖欠工资', '没签合同', '加班没给钱', '没交社保'];
@@ -807,7 +911,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       const stdOrigin = k => { const w = stdOf(st.facts.city, st.avgWage, st.minWage); return w ? w.origin[k] : '待补'; };
       const pct = k => totals.value.total ? (totals.value[k] / totals.value.total * 100) + '%' : '0%';
 
-      return { st, ui, R, E, F, G, PAGES, model, allCities, std, stdCity, stdOrigin, imgCaps, files, upload, kindOfTag: D.kindOfTag, analysis, chosen, conflicts, totals, next, prog, factRows, evidenceGroups, arbitration,
+      return { record, kbEntries, askQA, QA_CHIPS, evTimeline, toggleDictation, extractQuotes, confirmQuotes, codeRiskList, checkRisks, risksStale, st, ui, R, E, F, G, PAGES, model, allCities, std, stdCity, stdOrigin, imgCaps, files, upload, kindOfTag: D.kindOfTag, analysis, chosen, conflicts, totals, next, prog, factRows, evidenceGroups, arbitration,
         answer, pick, notSure, editFact, toAnalysis, pendingKeys, confirmParams, gate, supplement, organizeEvidence, evItems, src, resolveAsk, confirmRec, guideQs, fillHint, suggestMiss, partyMissing, partyDone, claimCheck, uploadInChat, eligible, institution, platformSteps, copyText, saveEvidenceZip, copyCount, materialList, checkItems, events, limitNear, mailRisky, triageOn, uploadReceipt, saveIcs, serviceAddressDoc, powerOfAttorneyDoc, printListDoc, printPackage, hasRecording, reasonProblems, appFormat, W, toggleClaim, toggleEvidence, go, newCase, openCase, appNext, exportApp, draft, requestLines,
         save, evidenceDoc, applicationDoc, examples, useExample, fillSample, tierClass, statusClass, pct, display, labelOf, today };
     },

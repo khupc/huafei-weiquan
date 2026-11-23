@@ -39,12 +39,14 @@ tag：从这个清单里选最贴切的一项，没有合适的输出空字符�
 字段：
 ${AUTO_FIELDS.map(f => `${f}: ${FIELD_DESC[f]}`).join('\n')}
 另外输出 summary：一句话说这张材料能看出什么事实（不写金额，30 字以内）。
+另外输出 doc_date：材料上能看出的日期（聊天记录取消息日期，通知取落款日期，合同取签订日期），格式 YYYY-MM-DD 或 YYYY-MM，看不出就不输出。
 只输出 JSON，例如 {"kind": "contract", "tag": "劳动合同", "company_name": "..."}`;
     const k = KINDS[kind];
     return `这是一位劳动者为劳动仲裁上传的「${tag || k.title}」照片。请只读照片上写着的内容，提取下面的字段；看不清、没有写的字段不要输出，不要猜。
 字段：
 ${k.fields.map(f => `${f}: ${FIELD_DESC[f]}`).join('\n')}
 另外输出 doc_ok：照片是否确实是「${tag || k.title}」（true/false）。
+另外输出 summary：一句话说这张材料能看出什么事实（不写金额，30 字以内）；doc_date：材料上能看出的日期，格式 YYYY-MM-DD 或 YYYY-MM，看不出就不输出。
 只输出 JSON，例如 {"doc_ok": true, "company_name": "..."}`;
   }
 
