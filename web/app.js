@@ -193,7 +193,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
     };
   }
 
-  const GREETING = '你好，我是劳动仲裁助手。先说说发生了什么：在哪个城市上班、干了多久、工资多少、公司做了什么。说不全也没关系，我再接着问。\n如果你已经了解过，也可以把你的结论（比如想要 2N 赔偿、算的金额）和手上的材料一次发过来，点「＋材料」上传合同、身份证、聊天截图等。我会核对哪些对，你只需要确认，缺的再问你。';
+  const GREETING = '你好，我是劳动仲裁助手。先说说发生了什么：在哪个城市上班、干了多久、工资多少、公司做了什么。说不全也没关系，我再接着问。\n如果你已经了解过，也可以把你的结论（比如想要 2N 赔偿、算的金额）和手上的材料一次发过来，点输入框里的「＋」拍照或上传合同、身份证、聊天截图，也可以点话筒直接说。我会核对哪些对，你只需要确认，缺的再问你。';
   const PAGES = [
     { id: 'P1', name: '对话' }, { id: 'P2', name: '分析' }, { id: 'P3', name: '测算' },
     { id: 'P4', name: '报告' }, { id: 'P5', name: '证据' }, { id: 'P6', name: '申请书' },
@@ -203,8 +203,9 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
   createApp({
     setup() {
       const st = reactive(blankCase());
-      const ui = reactive({ reply: '', busy: false, drawer: false, cases: loadCases(), tab: 'detail', missing: [], focusQ: '', supp: '', evBusy: false, exportText: '', editing: false, toast: '', qaOpen: false, qaInput: '', qaBusy: false, recText: '', recBusy: false, recQuotes: [], recPick: {}, dictating: false, dictPartial: '', canDictate: false, riskBusy: false, hearBusy: false, negoBusy: false, delId: '', renameId: '', renameText: '' });
-      dictationPromise.then(d => { ui.canDictate = !!d; });
+      const ui = reactive({ reply: '', busy: false, drawer: false, cases: loadCases(), tab: 'detail', missing: [], focusQ: '', supp: '', evBusy: false, exportText: '', editing: false, toast: '', qaOpen: false, qaInput: '', qaBusy: false, recText: '', recBusy: false, recQuotes: [], recPick: {}, dictating: false, dictPartial: '', canDictate: false, riskBusy: false, hearBusy: false, negoBusy: false, delId: '', renameId: '', renameText: '', dictTarget: 'rec', attachOpen: false });
+      let dictObj = null;
+      dictationPromise.then(d => { dictObj = d; ui.canDictate = !!d; });
 
       const allCities = G.PROVINCES.flatMap(p => p.cities.map(c => ({ city: c, province: p.province })));
       // 社平工资按「用人单位所在」城市取，最低工资同；年度取解除时的上年度（校准文档 L-04、4.1）
@@ -459,9 +460,13 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
         inp.click();
       }
       // 第一轮对话里直接传材料：每张单独识别类型，读到的写进信息链、勾上证据，在对话里回报
-      function uploadInChat() {
+      // mode：camera 拍照 / album 相册 / file 文件（合同、身份证、聊天截图、PDF…）
+      function uploadInChat(mode) {
+        ui.attachOpen = false;
         const inp = document.createElement('input');
-        inp.type = 'file'; inp.multiple = true; inp.accept = imgCaps.ok ? imgCaps.accept + ',application/pdf' : 'image/*,application/pdf';
+        inp.type = 'file'; inp.multiple = mode !== 'camera';
+        inp.accept = mode === 'camera' || mode === 'album' ? 'image/*' : (imgCaps.ok ? imgCaps.accept + ',application/pdf' : 'image/*,application/pdf');
+        if (mode === 'camera') inp.setAttribute('capture', 'environment');
         inp.onchange = async () => {
           const list = [...inp.files]; if (!list.length) return;
           st.chat.push({ role: 'user', text: `上传了 ${list.length} 份材料：${list.map(f => f.name).join('、')}` });
@@ -874,17 +879,19 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
 
       // 录音：手机/微信转好的文字稿粘贴进来，或边放录音边听写；模型只摘原话，代码核对每句都在文字稿里
       let dict = null;
-      async function toggleDictation() {
-        if (ui.dictating) { try { await dict.stop(); } catch (e) { } return; }
-        const d = await dictationPromise;
-        if (!d) { flash('当前环境不支持听写，请粘贴文字稿'); return; }
+      // 听写：对话框语音输入（target='reply'）和录音整理（target='rec'）共用；start() 必须在点击里直接调用
+      function toggleDictation(target) {
+        if (ui.dictating) { if (dict) dict.stop().catch(() => {}); return; }
+        const d = dictObj;
+        if (!d) { flash('当前环境不支持语音输入，可以用手机键盘上的话筒'); return; }
+        ui.dictTarget = target || 'rec';
         if (!dict) {
           dict = d;
           d.onPartial(({ text }) => { ui.dictPartial = text; });
-          d.onFinal(({ text }) => { ui.recText += text; ui.dictPartial = ''; });
-          d.onState(({ state }) => { ui.dictating = state === 'listening'; });
+          d.onFinal(({ text }) => { if (ui.dictTarget === 'reply') ui.reply += text; else ui.recText += text; ui.dictPartial = ''; });
+          d.onState(({ state }) => { ui.dictating = state === 'listening'; if (!ui.dictating) ui.dictPartial = ''; });
         }
-        d.start().catch(e => { ui.dictating = false; flash(e && e.code === 'not_granted' ? '没有授权听写，请粘贴文字稿' : '听写没有启动，请粘贴文字稿'); });
+        d.start().catch(e => { ui.dictating = false; flash(e && e.code === 'not_granted' ? '没有授权语音输入，可以打字或用手机键盘的话筒' : '语音输入没有启动，请再点一次'); });
       }
       async function extractQuotes() {
         const text = ui.recText.trim();

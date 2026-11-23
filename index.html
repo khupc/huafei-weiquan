@@ -26,7 +26,7 @@
 * { box-sizing: border-box; }
 body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 15px; line-height: 1.6; }
 body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--surface); }
-#app { max-width: 560px; margin: 0 auto; padding-bottom: 96px; }
+#app { max-width: 560px; margin: 0 auto; padding-bottom: 150px; }
 .wrap { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
 button, input, textarea, select { font: inherit; color: inherit; }
 button { cursor: pointer; }
@@ -80,7 +80,19 @@ label.f { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
 .msg.user { background: var(--accent); color: var(--accent-ink); justify-self: end; border-top-right-radius: 4px; }
 .opts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .composer { position: fixed; left: 0; right: 0; bottom: 0; background: var(--surface); border-top: 1px solid var(--line); padding-block: 10px calc(10px + env(safe-area-inset-bottom, 0px)); z-index: 4; }
-.composer .inner { max-width: 560px; margin: 0 auto; display: flex; gap: 8px; }
+.composer .inner { max-width: 560px; margin: 0 auto; display: grid; gap: 10px; }
+.cbox { border: 1px solid var(--line); border-radius: 20px; background: var(--bg); padding: 10px 10px 6px; display: grid; gap: 4px; }
+.cbox textarea { border: 0; background: transparent; resize: none; min-height: 44px; padding: 2px 4px; outline: none; font: inherit; color: var(--ink); }
+.cbar { display: flex; align-items: center; gap: 4px; }
+.chint { flex: 1; margin: 0 4px; font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.icon-btn.lg { width: 36px; height: 36px; border-radius: 999px; }
+.icon-btn.lg svg { width: 22px; height: 22px; }
+.icon-btn.on { color: var(--accent); background: var(--accent-soft); }
+.icon-btn.send { background: var(--accent); color: var(--accent-ink); }
+.icon-btn.send:disabled { opacity: .35; }
+.attach { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.tile { display: grid; justify-items: center; gap: 4px; padding: 12px 0; border-radius: 14px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); font: inherit; font-size: 14px; cursor: pointer; }
+.tile svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .progress { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
 .progress i { display: block; height: 100%; background: var(--accent); }
 .thinking { color: var(--muted); font-size: 13px; }
@@ -141,6 +153,7 @@ ol.path small { color: var(--muted); display: block; }
 .icon-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .icon-btn.danger { color: var(--danger); }
 .case-rename { font: inherit; font-weight: 600; padding: 4px 6px; }
+.fab.fab-up { bottom: calc(200px + env(safe-area-inset-bottom, 0px)); }
 .fab { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(84px + env(safe-area-inset-bottom, 0px)); z-index: 15; border-radius: 999px; padding: 10px 16px; box-shadow: 0 4px 14px rgb(0 0 0 / .18); }
 .sheet { position: fixed; left: 0; right: 0; bottom: 0; max-height: 78vh; background: var(--surface); border-top: 1px solid var(--line); border-radius: 16px 16px 0 0; z-index: 25; display: grid; grid-template-rows: auto 1fr auto; padding: 14px 16px calc(12px + env(safe-area-inset-bottom, 0px)); max-width: 640px; margin: 0 auto; }
 .sheet-body { overflow-y: auto; display: grid; gap: 8px; align-content: start; padding-block: 8px; }
@@ -254,9 +267,21 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
       </section>
       <div class="composer wrap">
         <div class="inner">
-          <textarea id="reply" class="grow" rows="1" style="min-height:44px" v-model="ui.reply" :placeholder="st.chat.some(m => m.role === 'user') ? '直接打字回答，或点上面的选项' : '例如：在苏州做了 3 年仓库主管，月薪 9000，上个月被口头辞退，没签合同'" @keydown.enter.exact.prevent="answer()"></textarea>
-          <button id="chat-upload" class="btn ghost" :disabled="ui.busy" title="上传合同、身份证、聊天截图等材料" @click="uploadInChat">＋材料</button>
-          <button class="btn" :disabled="ui.busy || !ui.reply.trim()" @click="answer()">发送</button>
+          <div class="cbox">
+            <textarea id="reply" rows="2" v-model="ui.reply" :placeholder="ui.dictating && ui.dictTarget === 'reply' ? '正在听…' : (st.chat.some(m => m.role === 'user') ? '直接说或打字回答，也可以点上面的选项' : '说说发生了什么，或者直接发合同、聊天截图')" @keydown.enter.exact.prevent="answer()"></textarea>
+            <p v-if="ui.dictating && ui.dictTarget === 'reply' && ui.dictPartial" class="sub" style="margin:0 4px">{{ ui.dictPartial }}</p>
+            <div class="cbar">
+              <span class="sub chint">{{ ui.busy ? '正在读…' : '零碎的信息直接发，我来整理合并' }}</span>
+              <button id="chat-attach" class="icon-btn lg" :class="{on: ui.attachOpen}" :aria-label="ui.attachOpen ? '收起' : '发送材料'" :title="ui.attachOpen ? '收起' : '拍照、相册、文件'" :disabled="ui.busy" @click="ui.attachOpen = !ui.attachOpen"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path v-if="!ui.attachOpen" d="M12 8v8M8 12h8"/><path v-else d="M9 9l6 6M15 9l-6 6"/></svg></button>
+              <button v-if="ui.canDictate && !ui.reply.trim()" id="chat-mic" class="icon-btn lg" :class="{on: ui.dictating && ui.dictTarget === 'reply'}" :aria-label="ui.dictating ? '停止语音输入' : '语音输入'" title="语音输入" @click="toggleDictation('reply')"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+              <button v-else id="chat-send" class="icon-btn lg send" aria-label="发送" title="发送" :disabled="ui.busy || !ui.reply.trim()" @click="answer()"><svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
+            </div>
+          </div>
+          <div v-if="ui.attachOpen" class="attach">
+            <button class="tile" @click="uploadInChat('camera')"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>拍照</button>
+            <button class="tile" @click="uploadInChat('album')"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M5 17l5-5 4 4 2-2 3 3"/></svg>相册</button>
+            <button class="tile" @click="uploadInChat('file')"><svg viewBox="0 0 24 24"><path d="M16 7l-7 7a2 2 0 0 0 3 3l7-7a4 4 0 0 0-6-6l-7 7a6 6 0 0 0 8 8l6-6"/></svg>文件</button>
+          </div>
         </div>
       </div>
     </template>
@@ -504,7 +529,7 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
         <textarea id="rec-text" v-model="ui.recText" rows="5" placeholder="把录音的文字稿粘贴到这里"></textarea>
         <p v-if="ui.dictPartial" class="sub">听写中：{{ ui.dictPartial }}</p>
         <div class="row">
-          <button v-if="ui.canDictate" class="btn ghost" @click="toggleDictation">{{ ui.dictating ? '停止听写' : '边放边听写' }}</button>
+          <button v-if="ui.canDictate" class="btn ghost" @click="toggleDictation('rec')">{{ ui.dictating ? '停止听写' : '边放边听写' }}</button>
           <button id="rec-extract" class="btn" :disabled="ui.recBusy || ui.recText.trim().length < 4" @click="extractQuotes">{{ ui.recBusy ? '正在摘取…' : '摘出关键原话' }}</button>
         </div>
         <template v-if="ui.recQuotes.length">
@@ -728,7 +753,7 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
     </section>
   </main>
   <datalist id="city-options"><option v-for="c in allCities" :value="c.city"></option></datalist>
-  <button v-if="!ui.qaOpen && !ui.drawer" class="btn fab" id="qa-open" @click="ui.qaOpen = true">问一问</button>
+  <button v-if="!ui.qaOpen && !ui.drawer" class="btn fab" :class="{ 'fab-up': st.page === 'P1' }" id="qa-open" @click="ui.qaOpen = true">问一问</button>
   <div v-if="ui.qaOpen" class="drawer-mask" @click="ui.qaOpen = false"></div>
   <section v-if="ui.qaOpen" class="sheet" id="qa">
     <div class="row"><b class="grow">问答助手</b><button class="btn plain" @click="ui.qaOpen = false">关闭</button></div>
