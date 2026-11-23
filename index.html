@@ -133,6 +133,14 @@ ol.path small { color: var(--muted); display: block; }
 .drawer-mask { position: fixed; inset: 0; background: rgb(0 0 0 / .35); z-index: 20; }
 .drawer { position: fixed; top: 0; bottom: 0; left: 0; width: min(320px, 85vw); background: var(--surface); z-index: 21; padding: calc(16px + env(safe-area-inset-top, 0px)) 16px 16px max(16px, env(safe-area-inset-left, 0px)); overflow-y: auto; display: grid; align-content: start; gap: 8px; }
 .case-item { text-align: left; border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: transparent; }
+.case-item { cursor: pointer; display: grid; gap: 2px; }
+.case-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.case-tools, .case-confirm { display: inline-flex; align-items: center; gap: 2px; flex: none; }
+.icon-btn { width: 28px; height: 28px; display: inline-grid; place-items: center; border: 0; background: transparent; color: var(--muted); border-radius: 6px; padding: 0; cursor: pointer; }
+.icon-btn:hover, .icon-btn:focus-visible { background: var(--accent-soft); color: var(--ink); }
+.icon-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.icon-btn.danger { color: var(--danger); }
+.case-rename { font: inherit; font-weight: 600; padding: 4px 6px; }
 .fab { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(84px + env(safe-area-inset-bottom, 0px)); z-index: 15; border-radius: 999px; padding: 10px 16px; box-shadow: 0 4px 14px rgb(0 0 0 / .18); }
 .sheet { position: fixed; left: 0; right: 0; bottom: 0; max-height: 78vh; background: var(--surface); border-top: 1px solid var(--line); border-radius: 16px 16px 0 0; z-index: 25; display: grid; grid-template-rows: auto 1fr auto; padding: 14px 16px calc(12px + env(safe-area-inset-bottom, 0px)); max-width: 640px; margin: 0 auto; }
 .sheet-body { overflow-y: auto; display: grid; gap: 8px; align-content: start; padding-block: 8px; }
@@ -168,13 +176,17 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
       <h3>历史案件</h3>
       <p class="sub">只保存在这台设备的浏览器里。</p>
       <button class="btn" @click="newCase">新建案件</button>
-      <div v-for="c in ui.cases" :key="c.id" class="row" style="align-items:stretch">
-        <button class="case-item grow" @click="openCase(c)">
-          <b>{{ c.city || (c.facts && c.facts.city) || '未选城市' }}</b> · {{ (c.chat.find(m => m.role === 'user') || {}).text?.slice(0, 18) || '尚未描述' }}<template v-if="c.id === st.id">（当前）</template>
-          <div class="sub">{{ c.updated ? c.updated.slice(0, 16).replace('T', ' ') : '' }} · 停在{{ PAGES.find(p => p.id === c.page)?.name }}</div>
-        </button>
-        <button v-if="ui.delId !== c.id" class="btn plain" aria-label="删除" @click="ui.delId = c.id">删除</button>
-        <button v-else class="btn" style="background:var(--danger);border-color:var(--danger)" @click="deleteCase(c.id)">确认删除</button>
+      <div v-for="c in ui.cases" :key="c.id" class="case-item" role="button" tabindex="0" @click="ui.renameId !== c.id && openCase(c)" @keydown.enter="ui.renameId !== c.id && openCase(c)">
+        <input v-if="ui.renameId === c.id" class="case-rename" v-model="ui.renameText" @click.stop @keydown.enter.stop="renameCase(c.id)" @keydown.esc="ui.renameId = ''" @blur="renameCase(c.id)" maxlength="30" placeholder="给案件起个名字">
+        <b v-else>{{ c.title || ((c.city || (c.facts && c.facts.city) || '未选城市') + ' · ' + ((c.chat.find(m => m.role === 'user') || {}).text?.slice(0, 18) || '尚未描述')) }}</b><template v-if="c.id === st.id && ui.renameId !== c.id"><small class="sub">（当前）</small></template>
+        <div class="case-foot">
+          <span class="sub">{{ c.updated ? c.updated.slice(0, 16).replace('T', ' ') : '' }} · 停在{{ PAGES.find(p => p.id === c.page)?.name }}</span>
+          <span v-if="ui.delId === c.id" class="case-confirm" @click.stop><span class="sub">删除？</span><button class="icon-btn danger" aria-label="确认删除" title="确认删除" @click="deleteCase(c.id)"><svg viewBox="0 0 24 24"><path d="M5 12l5 5L20 7"/></svg></button><button class="icon-btn" aria-label="取消" title="取消" @click="ui.delId = ''"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></span>
+          <span v-else class="case-tools" @click.stop>
+            <button class="icon-btn" aria-label="重命名" title="重命名" @click="startRename(c)"><svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4"/></svg></button>
+            <button class="icon-btn" aria-label="删除" title="删除" @click="ui.delId = c.id"><svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12"/></svg></button>
+          </span>
+        </div>
       </div>
       <template v-if="ui.cases.length > 1">
         <button v-if="ui.delId !== 'all'" class="btn plain" @click="ui.delId = 'all'">清空全部历史案件</button>
@@ -704,7 +716,7 @@ pre.export { white-space: pre-wrap; font-size: 12px; background: var(--bg); padd
     </section>
   </main>
   <datalist id="city-options"><option v-for="c in allCities" :value="c.city"></option></datalist>
-  <button v-if="!ui.qaOpen" class="btn fab" id="qa-open" @click="ui.qaOpen = true">问一问</button>
+  <button v-if="!ui.qaOpen && !ui.drawer" class="btn fab" id="qa-open" @click="ui.qaOpen = true">问一问</button>
   <div v-if="ui.qaOpen" class="drawer-mask" @click="ui.qaOpen = false"></div>
   <section v-if="ui.qaOpen" class="sheet" id="qa">
     <div class="row"><b class="grow">问答助手</b><button class="btn plain" @click="ui.qaOpen = false">关闭</button></div>

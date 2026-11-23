@@ -183,7 +183,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
 
   function blankCase() {
     return {
-      id: 'c' + Date.now(), updated: null, page: 'P1', facts: {}, manual: {}, uncertain: {}, pending: {}, supplements: [], evPurpose: {}, sources: {}, autoTicked: [], asks: [], archive: [], confirmed: false, userClaims: {},
+      id: 'c' + Date.now(), title: '', updated: null, page: 'P1', facts: {}, manual: {}, uncertain: {}, pending: {}, supplements: [], evPurpose: {}, sources: {}, autoTicked: [], asks: [], archive: [], confirmed: false, userClaims: {},
       chat: [{ role: 'ai', text: GREETING }], evidence: { labor_relation: [], wage: [], termination: [] }, selected: [], recognized: [], avgWage: null, minWage: null, regAvgWage: null, regMinWage: null,
       app: { applicant: { name: '', gender: '', ethnicity: '', birth: '', hukou: '', id_type: '居民身份证', id_no: '', address: '', phone: '', service_address: '', email: '' },
         respondent: { name: '', company_type: '', credit_code: '', legal_rep: '', legal_rep_title: '', address: '', office_address: '', contact: '', contact_title: '', phone: '' }, reasons: '', step: 1,
@@ -203,7 +203,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
   createApp({
     setup() {
       const st = reactive(blankCase());
-      const ui = reactive({ reply: '', busy: false, drawer: false, cases: loadCases(), tab: 'detail', missing: [], focusQ: '', supp: '', evBusy: false, exportText: '', editing: false, toast: '', qaOpen: false, qaInput: '', qaBusy: false, recText: '', recBusy: false, recQuotes: [], recPick: {}, dictating: false, dictPartial: '', canDictate: false, riskBusy: false, hearBusy: false, negoBusy: false, delId: '' });
+      const ui = reactive({ reply: '', busy: false, drawer: false, cases: loadCases(), tab: 'detail', missing: [], focusQ: '', supp: '', evBusy: false, exportText: '', editing: false, toast: '', qaOpen: false, qaInput: '', qaBusy: false, recText: '', recBusy: false, recQuotes: [], recPick: {}, dictating: false, dictPartial: '', canDictate: false, riskBusy: false, hearBusy: false, negoBusy: false, delId: '', renameId: '', renameText: '' });
       dictationPromise.then(d => { ui.canDictate = !!d; });
 
       const allCities = G.PROVINCES.flatMap(p => p.cities.map(c => ({ city: c, province: p.province })));
@@ -679,6 +679,16 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       }
 
       function newCase() { Object.assign(st, blankCase()); ui.drawer = false; }
+      // 重命名历史案件：名字存进案件本身（title）
+      function startRename(c) { ui.delId = ''; ui.renameId = c.id; ui.renameText = c.title || ''; nextTick(() => { const el = document.querySelector('.case-rename'); if (el) el.focus(); }); }
+      function renameCase(id) {
+        if (ui.renameId !== id) return;
+        const title = ui.renameText.trim().slice(0, 30);
+        ui.renameId = '';
+        if (id === st.id) { st.title = title; return; }   // 当前案件走自动保存
+        const list = loadCases().map(c => c.id === id ? { ...c, title } : c);
+        saveCases(list); ui.cases = list;
+      }
       // 删除历史案件（只删这台设备上的）；删的是当前案件就换成一个新的空案件
       function deleteCase(id) {
         clearTimeout(persistTimer); persistTimer = null;
@@ -970,7 +980,7 @@ ${evidenceOptions ? `另外输出 evidence：用户说自己手上有的证据�
       const pct = k => totals.value.total ? (totals.value[k] / totals.value.total * 100) + '%' : '0%';
 
       return { genHearing, hearingStale, negoMoney, negoDeadline, genNegotiation, negoStale, record, kbEntries, askQA, QA_CHIPS, evTimeline, toggleDictation, extractQuotes, confirmQuotes, codeRiskList, checkRisks, risksStale, st, ui, R, E, F, G, PAGES, model, allCities, std, stdCity, stdOrigin, imgCaps, files, upload, kindOfTag: D.kindOfTag, analysis, chosen, conflicts, totals, next, prog, factRows, evidenceGroups, arbitration,
-        answer, pick, notSure, editFact, toAnalysis, pendingKeys, confirmParams, gate, supplement, organizeEvidence, evItems, src, resolveAsk, confirmRec, guideQs, fillHint, suggestMiss, partyMissing, partyDone, claimCheck, uploadInChat, eligible, institution, platformSteps, copyText, saveEvidenceZip, copyCount, materialList, checkItems, events, limitNear, mailRisky, triageOn, uploadReceipt, saveIcs, serviceAddressDoc, powerOfAttorneyDoc, printListDoc, printPackage, hasRecording, reasonProblems, appFormat, W, toggleClaim, toggleEvidence, go, newCase, openCase, deleteCase, appNext, exportApp, draft, requestLines,
+        answer, pick, notSure, editFact, toAnalysis, pendingKeys, confirmParams, gate, supplement, organizeEvidence, evItems, src, resolveAsk, confirmRec, guideQs, fillHint, suggestMiss, partyMissing, partyDone, claimCheck, uploadInChat, eligible, institution, platformSteps, copyText, saveEvidenceZip, copyCount, materialList, checkItems, events, limitNear, mailRisky, triageOn, uploadReceipt, saveIcs, serviceAddressDoc, powerOfAttorneyDoc, printListDoc, printPackage, hasRecording, reasonProblems, appFormat, W, toggleClaim, toggleEvidence, go, newCase, openCase, deleteCase, startRename, renameCase, appNext, exportApp, draft, requestLines,
         save, evidenceDoc, applicationDoc, examples, useExample, fillSample, tierClass, statusClass, pct, display, labelOf, today };
     },
   }).mount('#app');
